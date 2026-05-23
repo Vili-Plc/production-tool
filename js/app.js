@@ -156,56 +156,81 @@
     }
   });
 
+  // Tek bir USB komutunu retry ile dene; ST-Link bazen ilk denemede STALL döner.
+  async function withRetry(label, fn, tries = 2) {
+    let lastErr;
+    for (let i = 1; i <= tries; i++) {
+      try {
+        return await fn();
+      } catch (e) {
+        lastErr = e;
+        logWarn(`${label} — deneme ${i}/${tries} başarısız: ${e.message}`);
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
+    throw lastErr;
+  }
+
   // ── Event: Chip Bilgisi Oku ───────────────────────────────────────────
   elBtnReadChip.addEventListener('click', async () => {
     if (!cmd) { logErr('Önce ST-Link\'e bağlan.'); return; }
     elBtnReadChip.disabled = true;
     clearTargetUI();
+    let voltage; // opsiyonel
     try {
-      // 1) Besleme voltajı (chip bağlı mı sanity check)
-      logInfo('Hedef besleme ölçülüyor…');
-      const voltage = await cmd.getTargetVoltage();
-      logInfo(`VAREF: ${voltage.toFixed(3)} V`);
-      if (voltage < 1.0) {
-        logWarn('Hedef MCU besleme yok ya da PCB bağlı değil!');
-        elDotTarget.className = 'status-dot err';
-        elTgtVoltage.textContent = voltage.toFixed(2) + ' V (DÜŞÜK)';
-        elTgtVoltage.classList.remove('empty');
-        return;
+      // 1) Önce mevcut modu kontrol et — bazı kart başlangıçta DFU/Mass mode'da
+      try {
+        const mode = await cmd.getCurrentMode();
+        logInfo(`ST-Link mode: ${mode.modeName} (0x${mode.mode.toString(16)})`);
+      } catch (e) {
+        logWarn(`Mode okunamadı (önemli değil): ${e.message}`);
       }
 
-      // 2) SWD mode'a gir
+      // 2) Besleme voltajı (opsiyonel — fail olursa devam et)
+      try {
+        logInfo('Hedef besleme ölçülüyor…');
+        voltage = await withRetry('VAREF', () => cmd.getTargetVoltage());
+        logInfo(`VAREF: ${voltage.toFixed(3)} V`);
+        if (voltage < 1.0) {
+          logWarn(`Hedef MCU besleme çok düşük (${voltage.toFixed(2)} V) — devam ediyoruz ama chip cevap vermeyebilir`);
+        }
+      } catch (e) {
+        logWarn(`Voltaj okunamadı (devam ediyoruz): ${e.message}`);
+      }
+
+      // 3) SWD mode'a gir (retry ile)
       logInfo('SWD mode\'a giriliyor…');
-      const enterResp = await cmd.enterSwdMode();
+      const enterResp = await withRetry('Enter SWD', () => cmd.enterSwdMode());
       logInfo(`Enter SWD: status=0x${enterResp.status.toString(16)} ` +
               `[${Array.from(enterResp.raw).map(b => b.toString(16).padStart(2,'0')).join(' ')}]`);
 
-      // 3) DAP IDCODE (chip CoreSight ID)
+      // 4) DAP IDCODE (chip CoreSight ID)
       logInfo('DAP IDCODE okunuyor…');
-      const id = await cmd.readIdCodes();
+      const id = await withRetry('Read IDCODE', () => cmd.readIdCodes());
       logInfo(`DAP IDCODE: 0x${id.idcode.toString(16).padStart(8,'0').toUpperCase()}`);
       if (id.idcode === 0x0BB11477) {
         logOk('Cortex-M0 tespit edildi (STM32F0 ailesi).');
       } else if (id.idcode === 0) {
-        logErr('IDCODE = 0 → chip cevap vermiyor. SWD kabloları? Güç var mı?');
+        logErr('IDCODE = 0 → chip cevap vermiyor. SWD kabloları takılı mı? PCB enerji var mı?');
+        elDotTarget.className = 'status-dot err';
         return;
       } else {
         logWarn(`Beklenmeyen IDCODE — F0 değil veya farklı revizyon.`);
       }
 
-      // 4) STM32F0 spesifik bilgiler
+      // 5) STM32F0 spesifik bilgiler
       const stm = new Stm32f0(cmd);
 
       logInfo('DBGMCU_IDCODE okunuyor…');
-      const chip = await stm.readChipId();
+      const chip = await withRetry('Chip ID', () => stm.readChipId());
       logOk(`Chip: ${chip.modelName}  (DEV_ID=0x${chip.devId.toString(16).toUpperCase()}, ${chip.revName})`);
 
       logInfo('Flash boyutu okunuyor…');
-      const flashSize = await stm.readFlashSize();
+      const flashSize = await withRetry('Flash size', () => stm.readFlashSize());
       logOk(`Flash: ${flashSize} KB`);
 
       logInfo('UID okunuyor…');
-      const uid = await stm.readUid();
+      const uid = await withRetry('UID', () => stm.readUid());
       logOk(`UID: ${uid.pretty}`);
 
       // UI'ı güncelle
