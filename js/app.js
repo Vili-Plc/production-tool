@@ -15,7 +15,7 @@
   // ── TOOL VERSION ──────────────────────────────────────────────────────
   // Her release'de artır + HTML'deki ?v=N script tag'lerini de aynı sayıya çevir.
   // Cache invalidation + sürüm gösterimi için tek kaynak.
-  const TOOL_VERSION = 'v20';
+  const TOOL_VERSION = 'v21';
 
   // ── Auth state (localStorage'da tutulur — sayfa yenilenince devam) ────
   const AUTH_KEY = 'vili_plc_auth';
@@ -778,6 +778,8 @@
     currentUser = user;
     currentRole = role;
     document.body.setAttribute('data-role', role);
+    // Inline display'i temizle ki CSS rule (body[data-role] → display:none) etkili olsun
+    elLoginOverlay.style.display = '';
     elBadgeUser.textContent = user;
     elBadgeRole.textContent = role.toUpperCase();
     elBadgeRole.style.color = role === 'master' ? 'var(--accent)' : 'var(--warn)';
@@ -803,7 +805,8 @@
     elLoginUser.value = '';
     elLoginPass.value = '';
     elLoginErr.textContent = '';
-    elLoginOverlay.style.display = 'flex';
+    // CSS otomatik gösterir (body[data-role] yoksa overlay flex)
+    elLoginOverlay.style.display = '';
   }
 
   async function doLogin() {
