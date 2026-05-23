@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vili-Plc Üretim Aracı</title>
+  <style>
+    :root {
+      --bg: #1e1e1e;
+      --panel: #2a2a2a;
+      --border: #3a3a3a;
+      --text: #e0e0e0;
+      --muted: #888;
+      --accent: #4a9eff;
+      --ok: #4caf50;
+      --warn: #ff9800;
+      --err: #f44336;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 20px;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    h1 {
+      font-size: 22px; margin: 0 0 4px 0;
+      color: var(--accent);
+    }
+    .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      font-size: 15px; margin: 0 0 12px 0;
+      color: var(--text); font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+
+    button {
+      background: var(--accent); color: white;
+      border: none; padding: 10px 18px;
+      font-size: 14px; font-weight: 500;
+      border-radius: 5px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover:not(:disabled) { background: #5cb0ff; }
+    button:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
+    button.danger { background: var(--err); }
+    button.danger:hover:not(:disabled) { background: #ff5c50; }
+
+    .info-grid {
+      display: grid; grid-template-columns: 130px 1fr; gap: 8px 16px;
+      font-size: 13px;
+    }
+    .info-grid .label { color: var(--muted); }
+    .info-grid .val { color: var(--text); font-family: 'Consolas', monospace; }
+    .info-grid .val.empty { color: #555; font-style: italic; }
+
+    #log {
+      background: #111; color: #ddd;
+      padding: 12px; border-radius: 5px;
+      font-family: 'Consolas', monospace; font-size: 12px;
+      height: 280px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-all;
+      border: 1px solid var(--border);
+    }
+    .log-time { color: #888; }
+    .log-ok   { color: var(--ok); }
+    .log-warn { color: var(--warn); }
+    .log-err  { color: var(--err); }
+    .log-info { color: var(--accent); }
+
+    .status-dot {
+      display: inline-block; width: 9px; height: 9px;
+      border-radius: 50%; background: #555;
+      margin-right: 6px; vertical-align: middle;
+    }
+    .status-dot.on  { background: var(--ok); }
+    .status-dot.err { background: var(--err); }
+
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .browser-warn {
+      background: #4a3a1a; border: 1px solid var(--warn);
+      color: #ffc987; padding: 10px 14px; border-radius: 5px;
+      margin-bottom: 16px; font-size: 13px; display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Vili-Plc Üretim Aracı</h1>
+    <div class="subtitle">PCB programlama — WebUSB + ST-Link, tarayıcı tabanlı</div>
+
+    <div id="browserWarn" class="browser-warn">
+      ⚠️ Bu tarayıcı WebUSB desteklemiyor. Chrome veya Edge kullanın.
+    </div>
+
+    <!-- ST-Link bağlantı kartı -->
+    <div class="card">
+      <h2><span id="dotStlink" class="status-dot"></span>ST-Link Bağlantısı</h2>
+      <div class="info-grid">
+        <div class="label">Durum:</div>
+        <div class="val empty" id="stlinkStatus">Bağlı değil</div>
+        <div class="label">Versiyon:</div>
+        <div class="val empty" id="stlinkVersion">—</div>
+        <div class="label">VID/PID:</div>
+        <div class="val empty" id="stlinkVidPid">—</div>
+      </div>
+      <div class="btn-row" style="margin-top: 14px;">
+        <button id="btnConnect">ST-Link'e Bağlan</button>
+        <button id="btnDisconnect" class="danger" disabled>Bağlantıyı Kes</button>
+      </div>
+    </div>
+
+    <!-- Log paneli -->
+    <div class="card">
+      <h2>Log</h2>
+      <div id="log"></div>
+      <div class="btn-row" style="margin-top: 10px;">
+        <button id="btnClearLog" style="background: #555;">Logu Temizle</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modüller (sıra önemli — bağımlılık zinciri) -->
+  <script src="js/stlink-usb.js"></script>
+  <script src="js/stlink-cmd.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
