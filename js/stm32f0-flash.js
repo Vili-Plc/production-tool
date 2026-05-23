@@ -198,10 +198,17 @@
       await this.waitBusy();
       // CR.PG = 1
       let cr = await this.readCR();
+      console.log(`[programBuffer] CR before PG: 0x${cr.toString(16)}`);
       await this.cmd.writeDebugReg(FLASH.CR, cr | CR_PG);
+      const cr1 = await this.readCR();
+      console.log(`[programBuffer] CR after PG set: 0x${cr1.toString(16)} (PG bit beklenir: 1)`);
+      if (!(cr1 & CR_PG)) {
+        throw new Error(`PG biti set olmadı — CR=0x${cr1.toString(16)}. FPEC kilitli olabilir.`);
+      }
 
-      // Chunk'lara böl — ST-Link writeMemory16 max 1024 byte
-      const CHUNK = 1024;
+      // Chunk'lara böl — daha küçük chunk ile dene (256 byte) — bazı V2 firmware
+      // büyük halfword chunk'larda STALL veriyor
+      const CHUNK = 256;
       let off = 0;
       try {
         while (off < workData.length) {
@@ -209,8 +216,10 @@
           const chunkLen = Math.min(CHUNK, remaining);
           const chunkBuf = workData.subarray(off, off + chunkLen);
 
+          console.log(`[programBuffer] chunk @ 0x${(addr+off).toString(16)}, len=${chunkLen}`);
           await this.cmd.writeMemory16(addr + off, chunkBuf);
-          await this.waitBusy();
+          console.log(`[programBuffer] chunk write done, waiting busy…`);
+          await this.waitBusy(2000);
           off += chunkLen;
 
           if (onProgress) onProgress(off, workData.length);

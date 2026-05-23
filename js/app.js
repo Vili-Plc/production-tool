@@ -444,12 +444,15 @@
       const t0 = performance.now();
 
       const result = await flash.eraseProgramVerify(addr, selectedBin.bytes, (stage, cur, tot) => {
-        // Her log spam yapmasın diye sadece milestone'larda
-        if (stage === 'erase' && (cur === 1 || cur === tot)) {
+        // Erase sayfa sayfa, program her chunk
+        if (stage === 'erase') {
           logInfo(`  Erase: sayfa ${cur}/${tot}`);
         }
-        if (stage === 'program' && (cur === selectedBin.bytes.length || cur % 4096 === 0)) {
+        if (stage === 'program') {
           logInfo(`  Program: ${cur}/${tot} byte`);
+        }
+        if (stage === 'verify') {
+          logInfo(`  Verify: ${cur}/${tot} byte (read-back karşılaştırma)`);
         }
       });
 
