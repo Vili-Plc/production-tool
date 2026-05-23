@@ -297,15 +297,15 @@
       ];
       await this.usb.sendCommand(cmd);
       await this.usb.device.transferOut(this.usb.epOut, data);
-      // KRITIK: status read! Yoksa USB pipe eşitsiz kalır.
-      await this.usb.readResponse(2);
+      // V2J46 firmware status response yollamaz — okuma yapmıyoruz
     }
 
     /**
      * Bellek yaz — 16-bit (halfword) chunk'larla. F030 flash bunu zorunlu kılar
      * (word yazma PGERR verir). Adres 2-byte hizalı, length 2 katı.
-     * @param {number} addr  2-byte hizalı
-     * @param {Uint8Array} data  uzunluk 2 katı, max 1024
+     *
+     * webstlink referansı: writeMemory16 cevap döndürmez (sadece OUT'lar).
+     * Eğer status okumaya çalışılırsa V2J46 firmware'de hang oluyor.
      */
     async writeMemory16(addr, data) {
       if (addr & 1) throw new Error('Adres 2-byte hizalı olmalı');
@@ -322,10 +322,12 @@
         (len ) & 0xFF,
         (len >> 8) & 0xFF,
       ];
+      console.log(`[writeMemory16] step 1: sending cmd (16B)`);
       await this.usb.sendCommand(cmd);
-      await this.usb.device.transferOut(this.usb.epOut, data);
-      // KRITIK: status read! Yoksa USB pipe eşitsiz kalır → sonraki transfer hang.
-      await this.usb.readResponse(2);
+      console.log(`[writeMemory16] step 2: sending data (${len}B)`);
+      const r = await this.usb.device.transferOut(this.usb.epOut, data);
+      console.log(`[writeMemory16] step 3: data done, status=${r.status}, bytesWritten=${r.bytesWritten}`);
+      // NOT: status read kaldırıldı (V2J46 firmware response yollamaz, hang olur)
     }
 
     // ── Cortex-M0 Debug Core kontrolü (DHCSR @ 0xE000EDF0) ────────────────
