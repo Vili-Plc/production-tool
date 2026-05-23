@@ -39,6 +39,19 @@
   const elBinFileInfo  = document.getElementById('binFileInfo');
   const elBinAddr      = document.getElementById('binAddr');
   const elBtnProgram   = document.getElementById('btnProgram');
+  // Üretim akışı
+  const elDotProd       = document.getElementById('dotProd');
+  const elProdBootFile  = document.getElementById('prodBootFile');
+  const elProdBootInfo  = document.getElementById('prodBootInfo');
+  const elProdFwFile    = document.getElementById('prodFwFile');
+  const elProdFwInfo    = document.getElementById('prodFwInfo');
+  const elProdMajor     = document.getElementById('prodMajor');
+  const elProdMinor     = document.getElementById('prodMinor');
+  const elProdPatch     = document.getElementById('prodPatch');
+  const elBtnProduce    = document.getElementById('btnProduce');
+
+  let prodBoot = null;  // { name, bytes }
+  let prodFw   = null;
 
   // Seçilen bin dosyasının içeriği (RAM'de tutulur)
   let selectedBin = null;  // { name, bytes: Uint8Array }
@@ -49,13 +62,18 @@
     elBtnHalt.disabled      = !en;
     elBtnRun.disabled       = !en;
     elBtnReset.disabled     = !en;
-    // Program butonu file VE bağlantı VE adres geçerli ise aktif
+    // Program + Üret butonu file VE bağlantı VE adres geçerli ise aktif
     updateProgramButton();
+    updateProduceButton();
   }
 
   function updateProgramButton() {
     const ok = !!cmd && !!selectedBin && parseAddr(elBinAddr.value) !== null;
     elBtnProgram.disabled = !ok;
+  }
+
+  function updateProduceButton() {
+    elBtnProduce.disabled = !(cmd && prodBoot && prodFw);
   }
 
   function parseAddr(s) {
@@ -472,6 +490,115 @@
     } catch (e) {
       logErr('Program hatası: ' + e.message);
       elDotFlash.className = 'status-dot err';
+    } finally {
+      setFlashButtonsEnabled(true);
+    }
+  });
+
+  // ── Üretim akışı: file pickers ──────────────────────────────────────
+  async function loadProdFile(input, infoEl, target) {
+    const f = input.files[0];
+    if (!f) {
+      if (target === 'boot') prodBoot = null;
+      else                   prodFw   = null;
+      infoEl.textContent = '';
+      updateProduceButton();
+      return;
+    }
+    const buf = await f.arrayBuffer();
+    const entry = { name: f.name, bytes: new Uint8Array(buf) };
+    if (target === 'boot') prodBoot = entry;
+    else                   prodFw   = entry;
+    infoEl.textContent = `${f.name} — ${entry.bytes.length} byte`;
+    updateProduceButton();
+  }
+  elProdBootFile.addEventListener('change', () =>
+    loadProdFile(elProdBootFile, elProdBootInfo, 'boot'));
+  elProdFwFile.addEventListener('change', () =>
+    loadProdFile(elProdFwFile, elProdFwInfo, 'fw'));
+
+  // ── Event: PCB Üret (tam akış) ──────────────────────────────────────
+  elBtnProduce.addEventListener('click', async () => {
+    if (!cmd || !prodBoot || !prodFw) return;
+
+    const major = parseInt(elProdMajor.value, 10) || 0;
+    const minor = parseInt(elProdMinor.value, 10) || 0;
+    const patch = parseInt(elProdPatch.value, 10) || 0;
+
+    if (!confirm(
+      `⚙️ PCB ÜRETİM AKIŞI BAŞLAYACAK\n\n` +
+      `1. Mass Erase\n` +
+      `2. Bootloader yaz @ 0x08000000 (${prodBoot.bytes.length} byte)\n` +
+      `3. Firmware yaz @ 0x08001000 (${prodFw.bytes.length} byte → 35 KB + footer v${major}.${minor}.${patch})\n` +
+      `4. System Reset\n\n` +
+      `Devam edilsin mi?`
+    )) return;
+
+    setFlashButtonsEnabled(false);
+    elDotProd.className = 'status-dot';
+    const t0 = performance.now();
+    try {
+      await prepareDebugMode();
+
+      const flash = new Stm32f0Flash(cmd);
+      logInfo('━━━━━━━ PCB ÜRETİM BAŞLADI ━━━━━━━');
+
+      // 1) Mass Erase
+      logInfo('[1/4] Mass Erase…');
+      await cmd.halt();
+      await flash.unlock();
+      await flash.massErase();
+      logOk('  Mass erase tamam.');
+
+      // 2) Bootloader yaz
+      logInfo(`[2/4] Bootloader yaz @ 0x08000000 (${prodBoot.bytes.length} byte)…`);
+      let r = await flash.eraseProgramVerify(0x08000000, prodBoot.bytes, (stage, c, t) => {
+        if (stage === 'erase')   logInfo(`    Erase ${c}/${t}`);
+        if (stage === 'program') logInfo(`    Program ${c}/${t} byte`);
+      });
+      if (!r.match) {
+        throw new Error(`Bootloader verify fail @ 0x${r.firstMismatch.toString(16)}`);
+      }
+      logOk('  Bootloader OK.');
+
+      // 3) Firmware — footer ekle + yaz
+      logInfo(`[3/4] Firmware footer ekleniyor (v${major}.${minor}.${patch})…`);
+      const fwImage = FirmwareFooter.buildFirmwareImage(prodFw.bytes, major, minor, patch);
+      const footer  = FirmwareFooter.readFooter(fwImage);
+      logInfo(`  Footer: magic=0x${footer.magic.toString(16).toUpperCase()}, ` +
+              `ver=0x${footer.version.toString(16)}, size=${footer.size}, ` +
+              `crc=0x${footer.crc16.toString(16).toUpperCase()}`);
+
+      logInfo(`  Firmware yaz @ 0x08001000 (${fwImage.length} byte)…`);
+      r = await flash.eraseProgramVerify(0x08001000, fwImage, (stage, c, t) => {
+        if (stage === 'erase')   logInfo(`    Erase ${c}/${t}`);
+        if (stage === 'program' && (c % 4096 === 0 || c === t)) {
+          logInfo(`    Program ${c}/${t} byte`);
+        }
+      });
+      if (!r.match) {
+        throw new Error(`Firmware verify fail @ 0x${r.firstMismatch.toString(16)}`);
+      }
+      logOk('  Firmware OK.');
+
+      // 4) Reset
+      logInfo('[4/4] System Reset…');
+      await flash.lock();
+      await cmd.systemReset();
+      logOk('  Reset gönderildi.');
+
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+      logOk(`━━━━━━━ ✓ ÜRETİM TAMAM (${elapsed} sn) ━━━━━━━`);
+      elDotProd.className = 'status-dot on';
+
+      alert(`✓ PCB üretildi (${elapsed} sn)\n\n` +
+            `Bootloader: ${prodBoot.bytes.length} byte\n` +
+            `Firmware: v${major}.${minor}.${patch}\n\n` +
+            `Şimdi PCB enerji aldığında app çalışmalı.`);
+    } catch (e) {
+      logErr('Üretim hatası: ' + e.message);
+      elDotProd.className = 'status-dot err';
+      alert('❌ Üretim başarısız:\n' + e.message);
     } finally {
       setFlashButtonsEnabled(true);
     }

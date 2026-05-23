@@ -155,8 +155,9 @@
         <button id="btnReset" disabled>System Reset</button>
       </div>
 
-      <!-- File picker + program -->
+      <!-- Tekil file picker (test için) -->
       <div style="border-top: 1px solid var(--border); padding-top: 14px;">
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">Tekil dosya (test):</div>
         <div class="info-grid" style="grid-template-columns: 130px 1fr;">
           <div class="label">Dosya:</div>
           <div>
@@ -181,6 +182,52 @@
       </div>
     </div>
 
+    <!-- Üretim akışı kartı -->
+    <div class="card">
+      <h2><span id="dotProd" class="status-dot"></span>PCB Üretim (Otomatik Akış)</h2>
+      <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">
+        Mass Erase → Bootloader yaz → Firmware (footer'lı) yaz → Verify → Reset
+      </div>
+
+      <div class="info-grid" style="grid-template-columns: 160px 1fr; gap: 10px 16px;">
+        <div class="label">Bootloader (.bin):</div>
+        <div>
+          <input type="file" id="prodBootFile" accept=".bin"
+                 style="color: var(--text); font-size: 13px;" />
+          <span id="prodBootInfo" style="margin-left: 10px; color: var(--muted); font-size: 12px;"></span>
+        </div>
+
+        <div class="label">Firmware (.bin):</div>
+        <div>
+          <input type="file" id="prodFwFile" accept=".bin"
+                 style="color: var(--text); font-size: 13px;" />
+          <span id="prodFwInfo" style="margin-left: 10px; color: var(--muted); font-size: 12px;"></span>
+        </div>
+
+        <div class="label">Firmware Versiyon:</div>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <input type="number" id="prodMajor" value="5" min="0" max="255"
+                 style="background: #222; color: var(--text); border: 1px solid var(--border);
+                        padding: 6px 8px; border-radius: 4px; width: 55px; text-align: center;" />
+          <span style="color: var(--muted);">.</span>
+          <input type="number" id="prodMinor" value="0" min="0" max="255"
+                 style="background: #222; color: var(--text); border: 1px solid var(--border);
+                        padding: 6px 8px; border-radius: 4px; width: 55px; text-align: center;" />
+          <span style="color: var(--muted);">.</span>
+          <input type="number" id="prodPatch" value="1" min="0" max="255"
+                 style="background: #222; color: var(--text); border: 1px solid var(--border);
+                        padding: 6px 8px; border-radius: 4px; width: 55px; text-align: center;" />
+          <span style="color: var(--muted); font-size: 12px; margin-left: 8px;">major.minor.patch</span>
+        </div>
+      </div>
+
+      <div class="btn-row" style="margin-top: 16px;">
+        <button id="btnProduce" disabled style="background: #4caf50; font-weight: 600; padding: 12px 28px;">
+          🏭 PCB Üret (Tüm Akış)
+        </button>
+      </div>
+    </div>
+
     <!-- Log paneli -->
     <div class="card">
       <h2>Log</h2>
@@ -193,10 +240,11 @@
 
   <!-- Modüller (sıra önemli — bağımlılık zinciri)
        Versiyon query string — browser cache bypass; her güncelleme sonrası artır. -->
-  <script src="js/stlink-usb.js?v=12"></script>
-  <script src="js/stlink-cmd.js?v=12"></script>
-  <script src="js/stm32f0.js?v=12"></script>
-  <script src="js/stm32f0-flash.js?v=12"></script>
-  <script src="js/app.js?v=12"></script>
+  <script src="js/stlink-usb.js?v=13"></script>
+  <script src="js/stlink-cmd.js?v=13"></script>
+  <script src="js/stm32f0.js?v=13"></script>
+  <script src="js/stm32f0-flash.js?v=13"></script>
+  <script src="js/firmware-footer.js?v=13"></script>
+  <script src="js/app.js?v=13"></script>
 </body>
 </html>
