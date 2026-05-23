@@ -13,12 +13,30 @@
 (function (global) {
   'use strict';
 
-  const API_BASE = 'https://script.google.com/macros/s/AKfycbwjKta7CihSe7rmAUbt0oT9_Ml8OVotKAbNPvFV794ktRJTSG-5qOYJRyn1lq4ygSI/exec';
+  // Varsayılan URL — son bilinen deployment. localStorage'da kayıt varsa onu kullan.
+  const API_BASE_DEFAULT = 'https://script.google.com/macros/s/AKfycbylj0JFrEeEc_t4DGyV02dlbPqYnQt3VgoSrw4nfBKe1wl5MkZM0_wTvpPpXhxSxpZS/exec';
+  const STORAGE_KEY = 'vili_plc_api_url';
+
+  function getStoredUrl() {
+    try { return localStorage.getItem(STORAGE_KEY) || API_BASE_DEFAULT; }
+    catch { return API_BASE_DEFAULT; }
+  }
+  function setStoredUrl(url) {
+    try { localStorage.setItem(STORAGE_KEY, url); } catch {}
+  }
 
   class ProductionApi {
-    constructor(baseUrl = API_BASE) {
-      this.baseUrl = baseUrl;
+    constructor(baseUrl) {
+      this.baseUrl = baseUrl || getStoredUrl();
     }
+
+    setUrl(url) {
+      this.baseUrl = url;
+      setStoredUrl(url);
+    }
+
+    static getDefaultUrl() { return API_BASE_DEFAULT; }
+    static getStoredUrl()  { return getStoredUrl(); }
 
     /** API sağlık kontrolü — sayfa açılışında çağrılır. */
     async ping() {

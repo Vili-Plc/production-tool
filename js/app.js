@@ -15,7 +15,7 @@
   // ── TOOL VERSION ──────────────────────────────────────────────────────
   // Her release'de artır + HTML'deki ?v=N script tag'lerini de aynı sayıya çevir.
   // Cache invalidation + sürüm gösterimi için tek kaynak.
-  const TOOL_VERSION = 'v18';
+  const TOOL_VERSION = 'v19';
 
   // ── DOM elemanları ─────────────────────────────────────────────────────
   const elLog          = document.getElementById('log');
@@ -57,6 +57,8 @@
   const elProdOperator  = document.getElementById('prodOperator');
   const elProdNotes     = document.getElementById('prodNotes');
   const elApiStatusText = document.getElementById('apiStatusText');
+  const elApiUrlInput   = document.getElementById('apiUrlInput');
+  const elBtnSaveApiUrl = document.getElementById('btnSaveApiUrl');
 
   let prodBoot = null;  // { name, bytes }
   let prodFw   = null;
@@ -737,17 +739,43 @@
     if (usb.isOpen) usb.close().catch(() => {});
   });
 
-  // ── Sayfa açılışında API ping ──────────────────────────────────────────
-  (async () => {
+  // ── Apps Script API URL yönetimi + ping ───────────────────────────────
+  async function pingApi() {
     try {
       const r = await api.ping();
-      elApiStatusText.textContent = '✓ Hazır (' + r.msg + ')';
+      elApiStatusText.textContent = '✓ Hazır (' + r.msg + ', v' + r.version + ')';
       elApiStatusText.style.color = '#4caf50';
       logOk('Sunucu API: ' + r.msg + ' (v' + r.version + ')');
+      return true;
     } catch (e) {
       elApiStatusText.textContent = '✗ Erişilemiyor: ' + e.message;
       elApiStatusText.style.color = '#f44336';
-      logErr('Sunucu API erişilemiyor: ' + e.message + ' — internet bağlantısını kontrol et');
+      logErr('Sunucu API erişilemiyor: ' + e.message);
+      return false;
     }
-  })();
+  }
+
+  // Mevcut URL'i input'a yükle
+  elApiUrlInput.value = ProductionApi.getStoredUrl();
+
+  // Kaydet + test
+  elBtnSaveApiUrl.addEventListener('click', async () => {
+    const url = elApiUrlInput.value.trim();
+    if (!url || !url.startsWith('https://script.google.com/')) {
+      alert('Geçerli bir Apps Script URL\'i girin (https://script.google.com/...).');
+      return;
+    }
+    api.setUrl(url);
+    elBtnSaveApiUrl.disabled = true;
+    elBtnSaveApiUrl.textContent = 'Test ediliyor…';
+    elApiStatusText.textContent = 'test ediliyor…';
+    elApiStatusText.style.color = 'var(--muted)';
+    const ok = await pingApi();
+    elBtnSaveApiUrl.disabled = false;
+    elBtnSaveApiUrl.textContent = ok ? '✓ Kaydedildi' : 'Kaydet + Test';
+    setTimeout(() => { elBtnSaveApiUrl.textContent = 'Kaydet + Test'; }, 2000);
+  });
+
+  // Açılışta ping
+  pingApi();
 })();
