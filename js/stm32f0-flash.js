@@ -70,16 +70,18 @@
     }
 
     // ── Düşük seviye yardımcılar ─────────────────────────────────────────
+    //
+    // NOT: readDebugReg (APIV2 0x36) eski V2J46 firmware'de garip değerler
+    // dönüyor (reserved bitler set, vs.). readMemory32 (0x07) güvenilir.
+    // Tüm flash register okumalarını readMemory32 üzerinden yapıyoruz.
 
-    async readSR() {
-      const r = await this.cmd.readDebugReg(FLASH.SR);
-      return r.value;
+    async read32(addr) {
+      const buf = await this.cmd.readMemory32(addr, 4);
+      return ((buf[0]) | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24)) >>> 0;
     }
 
-    async readCR() {
-      const r = await this.cmd.readDebugReg(FLASH.CR);
-      return r.value;
-    }
+    async readSR() { return await this.read32(FLASH.SR); }
+    async readCR() { return await this.read32(FLASH.CR); }
 
     /** BSY bayrağı 0 olana kadar bekle (max timeoutMs). */
     async waitBusy(timeoutMs = 5000) {
@@ -128,17 +130,33 @@
     /** Mass erase — tüm flash'ı (boot + app + bytecode + sembol + retentive) sil. */
     async massErase() {
       await this.waitBusy();
-      // CR.MER = 1
-      let cr = await this.readCR();
-      await this.cmd.writeDebugReg(FLASH.CR, cr | CR_MER);
-      // CR.STRT = 1 (başlat)
-      cr = await this.readCR();
-      await this.cmd.writeDebugReg(FLASH.CR, cr | CR_STRT);
+
+      // Diagnostic — gerçek register değerlerini logla
+      const sr0 = await this.readSR();
+      const cr0 = await this.readCR();
+      console.log(`[massErase] başlangıç SR=0x${sr0.toString(16)} CR=0x${cr0.toString(16)}`);
+
+      // CR.MER = 1 (single write: önceki CR + MER bit)
+      await this.cmd.writeDebugReg(FLASH.CR, cr0 | CR_MER);
+
+      const cr1 = await this.readCR();
+      console.log(`[massErase] MER set sonrası CR=0x${cr1.toString(16)} (MER bit beklenir: 0x4)`);
+      if (!(cr1 & CR_MER)) {
+        throw new Error(`MER bit set olmadı — CR=0x${cr1.toString(16)}. FPEC kilitli olabilir.`);
+      }
+
+      // CR.STRT = 1 (MER + STRT birlikte tetikleme)
+      await this.cmd.writeDebugReg(FLASH.CR, cr1 | CR_STRT);
+
+      const cr2 = await this.readCR();
+      console.log(`[massErase] STRT set sonrası CR=0x${cr2.toString(16)}`);
+
       // Bekle (F030 mass erase ~40 ms tipik)
       await this.waitBusy(10000);
+
       // MER bayrağını temizle
-      cr = await this.readCR();
-      await this.cmd.writeDebugReg(FLASH.CR, cr & ~CR_MER);
+      const cr3 = await this.readCR();
+      await this.cmd.writeDebugReg(FLASH.CR, cr3 & ~(CR_MER | CR_STRT));
     }
 
     /** Tek bir sayfa sil (1 KB). page_addr 1 KB hizalı olmalı. */
