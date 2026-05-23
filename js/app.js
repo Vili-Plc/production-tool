@@ -565,6 +565,11 @@
       uidStr = uid.pretty;
       logOk('  UID: ' + uidStr);
 
+      // 0.5) RESET + HALT — CPU'yu temiz state'e al (önceki bootloader/app etkisini sil)
+      logInfo('  CPU reset + halt (temiz state)…');
+      await cmd.resetAndHalt();
+      logOk('  CPU temiz state\'te.');
+
       // 0b) DUPLICATE KONTROL — bu UID daha önce üretildiyse onay sor
       logInfo('  Sunucuda UID kontrolü…');
       let isReflash = false;
@@ -604,12 +609,10 @@
         }
       }
 
-      // 1) Mass Erase
-      logInfo('[1/5] Mass Erase…');
-      await cmd.halt();
+      // 1) FPEC Unlock (mass erase artık ayrı yapılmıyor — eraseProgramVerify zaten gerekli sayfaları siler)
+      logInfo('[1/5] FPEC unlock…');
       await flash.unlock();
-      await flash.massErase();
-      logOk('  Mass erase tamam.');
+      logOk('  FPEC unlocked.');
 
       // 2) Bootloader yaz
       logInfo(`[2/5] Bootloader yaz @ 0x08000000 (${prodBoot.bytes.length} byte)…`);

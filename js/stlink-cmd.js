@@ -360,6 +360,29 @@
       return await this.writeDebugReg(0xE000ED0C, 0x05FA0004);
     }
 
+    /**
+     * Reset & Halt — CPU'yu temiz state'e alır.
+     * DEMCR.VC_CORERESET=1 ayarlayıp sonra system reset triggerlar.
+     * CPU resetlenir AMA reset vektörünü çalıştırmadan halt eder.
+     *
+     * Bu, "önceki bootloader/app'ten gelen state'in tüm flash operasyonlarını
+     * etkilemesini" önler. Mass erase + program öncesi mutlaka çağrılmalı.
+     */
+    async resetAndHalt() {
+      // DEMCR @ 0xE000EDFC, bit 0 = VC_CORERESET (halt on reset vector)
+      await this.writeDebugReg(0xE000EDFC, 0x00000001);
+      // DHCSR halt enable (DEBUGEN + HALT)
+      await this.writeDebugReg(0xE000EDF0, 0xA05F0003);
+      // AIRCR system reset request
+      await this.writeDebugReg(0xE000ED0C, 0x05FA0004);
+      // Reset sırasında biraz bekle
+      await new Promise(r => setTimeout(r, 50));
+      // Halt durumunu doğrula (reset sonrası CPU vector'da halt edilmeli)
+      await this.waitHalted(2000);
+      // VC_CORERESET'i temizle (gelecekte normal reset olsun)
+      await this.writeDebugReg(0xE000EDFC, 0x00000000);
+    }
+
     // ── ARM Core Register R/W ─────────────────────────────────────────────
 
     /**
