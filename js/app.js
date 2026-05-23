@@ -15,7 +15,7 @@
   // ── TOOL VERSION ──────────────────────────────────────────────────────
   // Her release'de artır + HTML'deki ?v=N script tag'lerini de aynı sayıya çevir.
   // Cache invalidation + sürüm gösterimi için tek kaynak.
-  const TOOL_VERSION = 'v22';
+  const TOOL_VERSION = 'v23';
 
   // ── Auth state (localStorage'da tutulur — sayfa yenilenince devam) ────
   const AUTH_KEY = 'vili_plc_auth';
@@ -59,12 +59,8 @@
   const elBinFileInfo  = document.getElementById('binFileInfo');
   const elBinAddr      = document.getElementById('binAddr');
   const elBtnProgram   = document.getElementById('btnProgram');
-  // Üretim akışı
+  // Üretim akışı (bin'ler Drive'dan otomatik geliyor, eski file picker kaldırıldı)
   const elDotProd       = document.getElementById('dotProd');
-  const elProdBootFile  = document.getElementById('prodBootFile');
-  const elProdBootInfo  = document.getElementById('prodBootInfo');
-  const elProdFwFile    = document.getElementById('prodFwFile');
-  const elProdFwInfo    = document.getElementById('prodFwInfo');
   const elProdMajor     = document.getElementById('prodMajor');
   const elProdMinor     = document.getElementById('prodMinor');
   const elProdPatch     = document.getElementById('prodPatch');
@@ -550,27 +546,8 @@
     }
   });
 
-  // ── Üretim akışı: file pickers ──────────────────────────────────────
-  async function loadProdFile(input, infoEl, target) {
-    const f = input.files[0];
-    if (!f) {
-      if (target === 'boot') prodBoot = null;
-      else                   prodFw   = null;
-      infoEl.textContent = '';
-      updateProduceButton();
-      return;
-    }
-    const buf = await f.arrayBuffer();
-    const entry = { name: f.name, bytes: new Uint8Array(buf) };
-    if (target === 'boot') prodBoot = entry;
-    else                   prodFw   = entry;
-    infoEl.textContent = `${f.name} — ${entry.bytes.length} byte`;
-    updateProduceButton();
-  }
-  elProdBootFile.addEventListener('change', () =>
-    loadProdFile(elProdBootFile, elProdBootInfo, 'boot'));
-  elProdFwFile.addEventListener('change', () =>
-    loadProdFile(elProdFwFile, elProdFwInfo, 'fw'));
+  // ── (Eski file picker kaldırıldı — bin'ler artık Drive'dan otomatik geliyor) ──
+  // prodBoot ve prodFw API.fetchBin sonucundan doldurulur (üretim akışında).
 
   // ── Event: PCB Üret (tam akış — bin'leri Drive'dan otomatik çek) ──
   elBtnProduce.addEventListener('click', async () => {
