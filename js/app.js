@@ -12,6 +12,11 @@
 (function () {
   'use strict';
 
+  // ── TOOL VERSION ──────────────────────────────────────────────────────
+  // Her release'de artır + HTML'deki ?v=N script tag'lerini de aynı sayıya çevir.
+  // Cache invalidation + sürüm gösterimi için tek kaynak.
+  const TOOL_VERSION = 'v18';
+
   // ── DOM elemanları ─────────────────────────────────────────────────────
   const elLog          = document.getElementById('log');
   const elBrowserWarn  = document.getElementById('browserWarn');
@@ -176,13 +181,17 @@
     elDotStlink.className = 'status-dot err';
   }
 
+  // ── Tool versiyonunu HTML'e yaz ───────────────────────────────────────
+  const elToolVersion = document.getElementById('toolVersion');
+  if (elToolVersion) elToolVersion.textContent = TOOL_VERSION;
+
   // ── Browser desteği kontrolü ───────────────────────────────────────────
   if (!navigator.usb) {
     elBrowserWarn.style.display = 'block';
     elBtnConnect.disabled = true;
     logErr('Bu tarayıcıda WebUSB yok. Chrome/Edge gerekli.');
   } else {
-    logInfo('WebUSB destekleniyor. ST-Link\'e bağlanmak için butonu kullan.');
+    logInfo('Vili-Plc Üretim Tool ' + TOOL_VERSION + ' — WebUSB destekleniyor.');
   }
 
   // ── Event: Bağlan ──────────────────────────────────────────────────────
