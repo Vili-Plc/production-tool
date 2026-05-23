@@ -15,7 +15,7 @@
   // ── TOOL VERSION ──────────────────────────────────────────────────────
   // Her release'de artır + HTML'deki ?v=N script tag'lerini de aynı sayıya çevir.
   // Cache invalidation + sürüm gösterimi için tek kaynak.
-  const TOOL_VERSION = 'v21';
+  const TOOL_VERSION = 'v22';
 
   // ── Auth state (localStorage'da tutulur — sayfa yenilenince devam) ────
   const AUTH_KEY = 'vili_plc_auth';
@@ -121,7 +121,9 @@
   }
 
   function updateProduceButton() {
-    elBtnProduce.disabled = !(cmd && prodBoot && prodFw);
+    // Bin dosyaları Drive'dan otomatik çekiliyor, sadece ST-Link bağlı olsun
+    elBtnProduce.disabled = !cmd;
+    elBtnProduceSlave.disabled = !cmd;
   }
 
   function parseAddr(s) {
@@ -570,13 +572,39 @@
   elProdFwFile.addEventListener('change', () =>
     loadProdFile(elProdFwFile, elProdFwInfo, 'fw'));
 
-  // ── Event: PCB Üret (tam akış) ──────────────────────────────────────
+  // ── Event: PCB Üret (tam akış — bin'leri Drive'dan otomatik çek) ──
   elBtnProduce.addEventListener('click', async () => {
-    if (!cmd || !prodBoot || !prodFw) return;
+    if (!cmd) return;
 
     const major = parseInt(elProdMajor.value, 10) || 0;
     const minor = parseInt(elProdMinor.value, 10) || 0;
     const patch = parseInt(elProdPatch.value, 10) || 0;
+    const model = elPlcModel.value;
+
+    // ── Bin'leri Drive'dan çek (slave veya master farketmez, hep buradan) ──
+    if (!prodBoot || !prodFw) {
+      // Yoksa, otomatik fetch et
+      setFlashButtonsEnabled(false);
+      elBtnProduceSlave.disabled = true;
+      try {
+        logInfo('Drive\'dan bin dosyaları çekiliyor…');
+        const bootRes = await api.fetchBin(model, 'bootloader');
+        prodBoot = { name: bootRes.name, bytes: bootRes.bytes };
+        logOk(`  ✓ Bootloader: ${bootRes.name} (${bootRes.size} byte)`);
+        const fwRes = await api.fetchBin(model, 'firmware');
+        prodFw = { name: fwRes.name, bytes: fwRes.bytes };
+        logOk(`  ✓ Firmware: ${fwRes.name} (${fwRes.size} byte)`);
+      } catch (e) {
+        logErr('Drive bin çekme hatası: ' + e.message);
+        alert('Drive\'dan bin alınamadı: ' + e.message);
+        setFlashButtonsEnabled(true);
+        elBtnProduceSlave.disabled = false;
+        return;
+      } finally {
+        setFlashButtonsEnabled(true);
+        elBtnProduceSlave.disabled = false;
+      }
+    }
 
     if (!confirm(
       `⚙️ PCB ÜRETİM AKIŞI BAŞLAYACAK\n\n` +
@@ -793,8 +821,11 @@
       elBtnProduceSlave.style.display = 'none';
     }
 
-    // Master ise user listesini yükle
-    if (role === 'master') refreshUserList();
+    // Master ise user listesini + bin listesini yükle
+    if (role === 'master') {
+      refreshUserList();
+      refreshBinList();
+    }
   }
 
   function doLogout() {
@@ -896,6 +927,95 @@
 
   // Slave büyük buton — sadece tıklayınca aynı üretim akışını tetikle
   elBtnProduceSlave.addEventListener('click', () => elBtnProduce.click());
+
+  // ── Bin Yönetimi (master only) — Google Drive üzerinden ───────────────
+  const elDotBin           = document.getElementById('dotBin');
+  const elBinListInfo      = document.getElementById('binListInfo');
+  const elMasterBootFile   = document.getElementById('masterBootFile');
+  const elMasterFwFile     = document.getElementById('masterFwFile');
+  const elBtnUploadBoot    = document.getElementById('btnUploadBoot');
+  const elBtnUploadFw      = document.getElementById('btnUploadFw');
+  const elMasterBootStatus = document.getElementById('masterBootStatus');
+  const elMasterFwStatus   = document.getElementById('masterFwStatus');
+  const elBtnRefreshBins   = document.getElementById('btnRefreshBins');
+
+  function fmtBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024*1024) return (n/1024).toFixed(2) + ' KB';
+    return (n/(1024*1024)).toFixed(2) + ' MB';
+  }
+  function fmtDate(iso) {
+    if (!iso) return '-';
+    try { return new Date(iso).toLocaleString('tr-TR'); } catch { return iso; }
+  }
+
+  async function refreshBinList() {
+    if (!currentUser || currentRole !== 'master') return;
+    const model = elPlcModel.value;
+    elBinListInfo.innerHTML = '<span style="color:var(--muted)">Drive\'dan bilgi okunuyor…</span>';
+    try {
+      const info = await api.listBins(model);
+      let html = `<div style="color:var(--accent);margin-bottom:6px;">📁 Drive: Derko PLC Veri / ${escapeHtml(model)}</div>`;
+      for (const [name, meta] of Object.entries(info)) {
+        if (meta) {
+          html += `<div style="color:#4caf50">✓ ${name} — ${fmtBytes(meta.size)} — ${fmtDate(meta.lastModified)}</div>`;
+        } else {
+          html += `<div style="color:#f44336">✗ ${name} — yok</div>`;
+        }
+      }
+      elBinListInfo.innerHTML = html;
+      elDotBin.className = 'status-dot on';
+    } catch (e) {
+      elBinListInfo.innerHTML = '<span style="color:var(--err)">Bin liste hatası: ' + escapeHtml(e.message) + '</span>';
+      elDotBin.className = 'status-dot err';
+    }
+  }
+  elBtnRefreshBins.addEventListener('click', refreshBinList);
+  elPlcModel.addEventListener('change', refreshBinList);
+
+  // File picker enable button when file selected
+  elMasterBootFile.addEventListener('change', () => {
+    elBtnUploadBoot.disabled = !elMasterBootFile.files[0];
+    elMasterBootStatus.textContent = elMasterBootFile.files[0]
+      ? `${elMasterBootFile.files[0].name} (${fmtBytes(elMasterBootFile.files[0].size)})` : '';
+  });
+  elMasterFwFile.addEventListener('change', () => {
+    elBtnUploadFw.disabled = !elMasterFwFile.files[0];
+    elMasterFwStatus.textContent = elMasterFwFile.files[0]
+      ? `${elMasterFwFile.files[0].name} (${fmtBytes(elMasterFwFile.files[0].size)})` : '';
+  });
+
+  async function uploadBinToDrive(file, type, statusEl, btnEl) {
+    if (!file || !currentUser) return;
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳ Yükleniyor…';
+    statusEl.textContent = 'Drive\'a yükleniyor…';
+    statusEl.style.color = 'var(--muted)';
+    try {
+      const buf = await file.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      const model = elPlcModel.value;
+      const result = await api.uploadBin(model, type, bytes, currentUser);
+      logOk(`Bin yüklendi (Drive): ${type} → ${result.file} (${fmtBytes(result.size)})`);
+      statusEl.textContent = `✓ ${result.file} (${fmtBytes(result.size)})`;
+      statusEl.style.color = 'var(--ok)';
+      btnEl.textContent = '✓ Yüklendi';
+      setTimeout(() => { btnEl.textContent = '📤 Drive\'a Yükle'; }, 2000);
+      refreshBinList();
+    } catch (e) {
+      logErr('Bin upload hatası: ' + e.message);
+      statusEl.textContent = '✗ ' + e.message;
+      statusEl.style.color = 'var(--err)';
+      btnEl.textContent = '📤 Drive\'a Yükle';
+    } finally {
+      btnEl.disabled = false;
+    }
+  }
+
+  elBtnUploadBoot.addEventListener('click', () =>
+    uploadBinToDrive(elMasterBootFile.files[0], 'bootloader', elMasterBootStatus, elBtnUploadBoot));
+  elBtnUploadFw.addEventListener('click', () =>
+    uploadBinToDrive(elMasterFwFile.files[0], 'firmware', elMasterFwStatus, elBtnUploadFw));
 
   // ── Apps Script API URL yönetimi + ping ───────────────────────────────
   async function pingApi() {

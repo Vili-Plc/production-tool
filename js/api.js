@@ -146,6 +146,62 @@
       if (!json.ok) throw new Error(json.error);
       return json;
     }
+
+    // ── Bin Dosya Yönetimi (Google Drive üzerinden) ────────────────────
+
+    /**
+     * Belirli model + type için bin dosyasını çek.
+     * @returns {Uint8Array} bin içeriği
+     */
+    async fetchBin(model, type) {
+      const r = await fetch(this.baseUrl + '?action=fetchBin' +
+        '&model=' + encodeURIComponent(model) +
+        '&type='  + encodeURIComponent(type));
+      if (!r.ok) throw new Error('FetchBin HTTP ' + r.status);
+      const json = await r.json();
+      if (!json.ok) throw new Error(json.error);
+      // base64 → Uint8Array
+      const bin = atob(json.content);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return { bytes, name: json.name, size: json.size, lastModified: json.lastModified };
+    }
+
+    /** Bir model için Drive'daki bin'leri listele. */
+    async listBins(model) {
+      const r = await fetch(this.baseUrl + '?action=listBins&model=' + encodeURIComponent(model));
+      if (!r.ok) throw new Error('ListBins HTTP ' + r.status);
+      const json = await r.json();
+      if (!json.ok) throw new Error(json.error);
+      return json.files;
+    }
+
+    /**
+     * Master tarafından bin upload — Drive'a yazılır (mevcut overwrite).
+     * @param {Uint8Array} bytes
+     */
+    async uploadBin(model, type, bytes, byUser) {
+      // Uint8Array → base64
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
+
+      const r = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'uploadBin',
+          model: model,
+          type:  type,
+          content: base64,
+          by: byUser
+        }),
+      });
+      if (!r.ok) throw new Error('UploadBin HTTP ' + r.status);
+      const json = await r.json();
+      if (!json.ok) throw new Error(json.error);
+      return json;
+    }
   }
 
   global.ProductionApi = ProductionApi;

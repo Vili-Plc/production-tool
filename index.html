@@ -161,7 +161,7 @@
   <div class="container role-after-login">
     <h1>
       DERKO PLC — Üretim Aracı
-      <span id="toolVersion" style="font-size: 13px; color: var(--muted); font-weight: normal; margin-left: 8px;">v21</span>
+      <span id="toolVersion" style="font-size: 13px; color: var(--muted); font-weight: normal; margin-left: 8px;">v22</span>
       <span class="user-badge">
         <span id="badgeUser" class="username">—</span>
         <span id="badgeRole" class="role">—</span>
@@ -237,6 +237,44 @@
       </div>
     </div>
 
+    <!-- ─── Bin Yönetimi (sadece master) ─── -->
+    <div class="card role-master-only">
+      <h2><span id="dotBin" class="status-dot"></span>Bin Yönetimi (Google Drive)</h2>
+      <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">
+        Master, .bin dosyalarını Drive'a yükler. Slave üretim sırasında otomatik çeker.
+      </div>
+
+      <!-- Mevcut Drive bin'leri -->
+      <div id="binListInfo" style="font-family: 'Consolas', monospace; font-size: 12px; margin-bottom: 14px;
+                                    background: #1a1a1a; padding: 10px; border-radius: 4px; min-height: 30px;">
+        Bilgi yükleniyor…
+      </div>
+
+      <!-- Bootloader upload -->
+      <div style="margin-bottom: 12px; padding: 10px; background: #1a1a1a; border-radius: 4px;">
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 6px;">Bootloader (.bin):</div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <input type="file" id="masterBootFile" accept=".bin"
+                 style="color: var(--text); font-size: 13px;" />
+          <button id="btnUploadBoot" class="small" disabled>📤 Drive'a Yükle</button>
+          <span id="masterBootStatus" style="color: var(--muted); font-size: 12px;"></span>
+        </div>
+      </div>
+
+      <!-- Firmware upload -->
+      <div style="margin-bottom: 12px; padding: 10px; background: #1a1a1a; border-radius: 4px;">
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 6px;">Firmware (.bin):</div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <input type="file" id="masterFwFile" accept=".bin"
+                 style="color: var(--text); font-size: 13px;" />
+          <button id="btnUploadFw" class="small" disabled>📤 Drive'a Yükle</button>
+          <span id="masterFwStatus" style="color: var(--muted); font-size: 12px;"></span>
+        </div>
+      </div>
+
+      <button id="btnRefreshBins" class="small" style="background: #555;">🔄 Listeyi Yenile</button>
+    </div>
+
     <!-- ─── PCB Üretim (her iki rol) ─── -->
     <div class="card">
       <h2><span id="dotProd" class="status-dot"></span>PCB Üretim</h2>
@@ -245,18 +283,6 @@
       </div>
 
       <div class="info-grid" style="grid-template-columns: 160px 1fr; gap: 10px 16px;">
-
-        <!-- Master için file pickers — slave göremez -->
-        <div class="label role-master-only">Bootloader (.bin):</div>
-        <div class="role-master-only">
-          <input type="file" id="prodBootFile" accept=".bin" style="color: var(--text); font-size: 13px;" />
-          <span id="prodBootInfo" style="margin-left: 10px; color: var(--muted); font-size: 12px;"></span>
-        </div>
-        <div class="label role-master-only">Firmware (.bin):</div>
-        <div class="role-master-only">
-          <input type="file" id="prodFwFile" accept=".bin" style="color: var(--text); font-size: 13px;" />
-          <span id="prodFwInfo" style="margin-left: 10px; color: var(--muted); font-size: 12px;"></span>
-        </div>
 
         <div class="label">Firmware Versiyon:</div>
         <div style="display: flex; gap: 6px; align-items: center;">
@@ -334,12 +360,12 @@
   </div>
 
   <!-- Scripts — version ?v=N ile cache invalidation -->
-  <script src="js/stlink-usb.js?v=21"></script>
-  <script src="js/stlink-cmd.js?v=21"></script>
-  <script src="js/stm32f0.js?v=21"></script>
-  <script src="js/stm32f0-flash.js?v=21"></script>
-  <script src="js/firmware-footer.js?v=21"></script>
-  <script src="js/api.js?v=21"></script>
-  <script src="js/app.js?v=21"></script>
+  <script src="js/stlink-usb.js?v=22"></script>
+  <script src="js/stlink-cmd.js?v=22"></script>
+  <script src="js/stm32f0.js?v=22"></script>
+  <script src="js/stm32f0-flash.js?v=22"></script>
+  <script src="js/firmware-footer.js?v=22"></script>
+  <script src="js/api.js?v=22"></script>
+  <script src="js/app.js?v=22"></script>
 </body>
 </html>
