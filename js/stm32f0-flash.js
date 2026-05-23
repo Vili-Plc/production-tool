@@ -206,9 +206,9 @@
         throw new Error(`PG biti set olmadı — CR=0x${cr1.toString(16)}. FPEC kilitli olabilir.`);
       }
 
-      // Chunk'lara böl — daha küçük chunk ile dene (256 byte) — bazı V2 firmware
-      // büyük halfword chunk'larda STALL veriyor
-      const CHUNK = 256;
+      // Chunk'lara böl — V2J46 firmware'de 256 byte chunk hang oluyor.
+      // 8 byte (= 4 halfword) = 1 USB packet'in çok altı; en güvenli boyut.
+      const CHUNK = 8;
       let off = 0;
       try {
         while (off < workData.length) {
