@@ -274,8 +274,9 @@
     }
 
     /**
-     * Bellek yaz — bulk OUT ile data gönderilir.
-     * Tek 32-bit register için writeDebugReg kullan; bu bulk write için.
+     * Bellek yaz — bulk OUT ile data gönderilir, sonra 2-byte status oku.
+     * OpenOCD reference: ST-Link write komutları HER ZAMAN 2-byte response
+     * verir — okunmazsa USB pipe eşitsiz kalır, sonraki transfer hang olur.
      * @param {number} addr  4-byte hizalı
      * @param {Uint8Array} data  uzunluk 4 katı, max 1024
      */
@@ -295,8 +296,9 @@
         (len >> 8) & 0xFF,
       ];
       await this.usb.sendCommand(cmd);
-      // Ayrı bulk OUT — data byte'ları
       await this.usb.device.transferOut(this.usb.epOut, data);
+      // KRITIK: status read! Yoksa USB pipe eşitsiz kalır.
+      await this.usb.readResponse(2);
     }
 
     /**
@@ -322,6 +324,8 @@
       ];
       await this.usb.sendCommand(cmd);
       await this.usb.device.transferOut(this.usb.epOut, data);
+      // KRITIK: status read! Yoksa USB pipe eşitsiz kalır → sonraki transfer hang.
+      await this.usb.readResponse(2);
     }
 
     // ── Cortex-M0 Debug Core kontrolü (DHCSR @ 0xE000EDF0) ────────────────
