@@ -680,12 +680,17 @@
       logErr('Üretim hatası: ' + e.message);
       elDotProd.className = 'status-dot err';
 
-      // FAIL kaydı (UID okuduysak)
+      // FAIL kaydı (UID okuduysak) — bootloader/firmware bilgisini de yaz
       if (uidStr) {
         try {
           await api.registerPlc({
-            uid: uidStr, model: 'Vili2 Mini PLC',
-            operator: operator, status: 'FAIL', notes: e.message,
+            uid:        uidStr,
+            model:      'Vili2 Mini PLC',
+            bootloader: prodBoot ? `${prodBoot.name} (${prodBoot.bytes.length} byte)` : '',
+            firmware:   prodFw   ? `v${major}.${minor}.${patch} — ${prodFw.name}` : '',
+            operator:   operator,
+            status:     isReflash ? 'FAIL-REFLASH' : 'FAIL',
+            notes:      e.message,
           });
           logInfo('  FAIL kaydı Sheet\'e eklendi');
         } catch {}
