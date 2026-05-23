@@ -120,6 +120,26 @@
       </div>
     </div>
 
+    <!-- Hedef MCU bilgi kartı -->
+    <div class="card">
+      <h2><span id="dotTarget" class="status-dot"></span>Hedef MCU</h2>
+      <div class="info-grid">
+        <div class="label">Besleme (VAREF):</div>
+        <div class="val empty" id="tgtVoltage">—</div>
+        <div class="label">Chip Model:</div>
+        <div class="val empty" id="tgtModel">—</div>
+        <div class="label">DEV_ID / REV_ID:</div>
+        <div class="val empty" id="tgtDevRev">—</div>
+        <div class="label">Flash Boyutu:</div>
+        <div class="val empty" id="tgtFlash">—</div>
+        <div class="label">UID (96-bit):</div>
+        <div class="val empty" id="tgtUid">—</div>
+      </div>
+      <div class="btn-row" style="margin-top: 14px;">
+        <button id="btnReadChip" disabled>Chip Bilgisi Oku</button>
+      </div>
+    </div>
+
     <!-- Log paneli -->
     <div class="card">
       <h2>Log</h2>
@@ -133,6 +153,7 @@
   <!-- Modüller (sıra önemli — bağımlılık zinciri) -->
   <script src="js/stlink-usb.js"></script>
   <script src="js/stlink-cmd.js"></script>
+  <script src="js/stm32f0.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
