@@ -15,7 +15,22 @@
   // ── TOOL VERSION ──────────────────────────────────────────────────────
   // Her release'de artır + HTML'deki ?v=N script tag'lerini de aynı sayıya çevir.
   // Cache invalidation + sürüm gösterimi için tek kaynak.
-  const TOOL_VERSION = 'v19';
+  const TOOL_VERSION = 'v20';
+
+  // ── Auth state (localStorage'da tutulur — sayfa yenilenince devam) ────
+  const AUTH_KEY = 'vili_plc_auth';
+  function getAuth() {
+    try { const j = localStorage.getItem(AUTH_KEY); return j ? JSON.parse(j) : null; }
+    catch { return null; }
+  }
+  function setAuth(user, role) {
+    try { localStorage.setItem(AUTH_KEY, JSON.stringify({ user, role })); } catch {}
+  }
+  function clearAuth() {
+    try { localStorage.removeItem(AUTH_KEY); } catch {}
+  }
+  let currentUser = null;
+  let currentRole = null;
 
   // ── DOM elemanları ─────────────────────────────────────────────────────
   const elLog          = document.getElementById('log');
@@ -59,6 +74,25 @@
   const elApiStatusText = document.getElementById('apiStatusText');
   const elApiUrlInput   = document.getElementById('apiUrlInput');
   const elBtnSaveApiUrl = document.getElementById('btnSaveApiUrl');
+  // Login
+  const elLoginOverlay  = document.getElementById('loginOverlay');
+  const elLoginUser     = document.getElementById('loginUser');
+  const elLoginPass     = document.getElementById('loginPass');
+  const elLoginErr      = document.getElementById('loginErr');
+  const elBtnLogin      = document.getElementById('btnLogin');
+  const elBadgeUser     = document.getElementById('badgeUser');
+  const elBadgeRole     = document.getElementById('badgeRole');
+  const elBtnLogout     = document.getElementById('btnLogout');
+  // Kullanıcı yönetimi
+  const elUserList      = document.getElementById('userList');
+  const elNewUserName   = document.getElementById('newUserName');
+  const elNewUserPass   = document.getElementById('newUserPass');
+  const elNewUserRole   = document.getElementById('newUserRole');
+  const elBtnAddUser    = document.getElementById('btnAddUser');
+  // Slave büyük buton
+  const elBtnProduceSlave = document.getElementById('btnProduceSlave');
+  // PLC Model
+  const elPlcModel        = document.getElementById('plcModel');
 
   let prodBoot = null;  // { name, bytes }
   let prodFw   = null;
@@ -739,6 +773,127 @@
     if (usb.isOpen) usb.close().catch(() => {});
   });
 
+  // ── Login akışı ───────────────────────────────────────────────────────
+  function applyRole(user, role) {
+    currentUser = user;
+    currentRole = role;
+    document.body.setAttribute('data-role', role);
+    elBadgeUser.textContent = user;
+    elBadgeRole.textContent = role.toUpperCase();
+    elBadgeRole.style.color = role === 'master' ? 'var(--accent)' : 'var(--warn)';
+
+    // Slave için: büyük buton göster, master inputlarını gizle
+    if (role === 'slave') {
+      elBtnProduceSlave.style.display = 'block';
+      // Slave için operator otomatik = kullanıcı adı
+      elProdOperator.value = user;
+    } else {
+      elBtnProduceSlave.style.display = 'none';
+    }
+
+    // Master ise user listesini yükle
+    if (role === 'master') refreshUserList();
+  }
+
+  function doLogout() {
+    clearAuth();
+    currentUser = null;
+    currentRole = null;
+    document.body.removeAttribute('data-role');
+    elLoginUser.value = '';
+    elLoginPass.value = '';
+    elLoginErr.textContent = '';
+    elLoginOverlay.style.display = 'flex';
+  }
+
+  async function doLogin() {
+    elLoginErr.textContent = '';
+    const u = elLoginUser.value.trim();
+    const p = elLoginPass.value;
+    if (!u || !p) { elLoginErr.textContent = 'Kullanıcı adı ve şifre gerekli'; return; }
+    elBtnLogin.disabled = true;
+    elBtnLogin.textContent = 'Giriş yapılıyor…';
+    try {
+      const r = await api.login(u, p);
+      if (!r.ok) {
+        elLoginErr.textContent = '✗ ' + (r.error || 'Giriş başarısız');
+        return;
+      }
+      setAuth(u, r.role);
+      applyRole(u, r.role);
+      logOk('Giriş başarılı: ' + u + ' (' + r.role + ')');
+    } catch (e) {
+      elLoginErr.textContent = '✗ Sunucu hatası: ' + e.message;
+    } finally {
+      elBtnLogin.disabled = false;
+      elBtnLogin.textContent = 'Giriş';
+    }
+  }
+
+  elBtnLogin.addEventListener('click', doLogin);
+  elLoginPass.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+  elLoginUser.addEventListener('keydown', (e) => { if (e.key === 'Enter') elLoginPass.focus(); });
+  elBtnLogout.addEventListener('click', doLogout);
+
+  // ── Kullanıcı yönetimi (master only) ──────────────────────────────────
+  async function refreshUserList() {
+    if (!currentUser || currentRole !== 'master') return;
+    try {
+      const users = await api.listUsers(currentUser);
+      elUserList.innerHTML = '';
+      users.forEach(u => {
+        const div = document.createElement('div');
+        div.style.cssText = 'padding: 6px 10px; background: #1a1a1a; border-radius: 4px; margin-bottom: 4px; display: flex; align-items: center; gap: 10px;';
+        const isSelf = (u.username === currentUser);
+        const roleColor = u.role === 'master' ? 'var(--accent)' : 'var(--warn)';
+        div.innerHTML =
+          '<span style="flex: 1;"><span style="color: ' + roleColor + '; font-weight: 600;">[' + u.role.toUpperCase() + ']</span> ' +
+          '<span style="color: var(--text);">' + escapeHtml(u.username) + '</span>' +
+          (isSelf ? ' <span style="color: var(--muted); font-size: 11px;">(siz)</span>' : '') +
+          ' <span style="color: var(--muted); font-size: 11px;">— eklendi: ' + escapeHtml(u.createdBy) + '</span></span>';
+        if (!isSelf) {
+          const btn = document.createElement('button');
+          btn.textContent = 'Sil';
+          btn.className = 'small danger';
+          btn.onclick = async () => {
+            if (!confirm('"' + u.username + '" kullanıcısı silinecek. Emin misin?')) return;
+            try {
+              await api.deleteUser(u.username, currentUser);
+              logOk('Kullanıcı silindi: ' + u.username);
+              refreshUserList();
+            } catch (e) { alert('Silme hatası: ' + e.message); }
+          };
+          div.appendChild(btn);
+        }
+        elUserList.appendChild(div);
+      });
+    } catch (e) {
+      elUserList.innerHTML = '<span style="color: var(--err);">Liste yüklenemedi: ' + escapeHtml(e.message) + '</span>';
+    }
+  }
+
+  elBtnAddUser.addEventListener('click', async () => {
+    const u = elNewUserName.value.trim();
+    const p = elNewUserPass.value;
+    const r = elNewUserRole.value;
+    if (!u || !p) { alert('Kullanıcı adı ve şifre gerekli'); return; }
+    elBtnAddUser.disabled = true;
+    try {
+      await api.addUser(u, p, r, currentUser);
+      logOk('Kullanıcı eklendi: ' + u + ' (' + r + ')');
+      elNewUserName.value = '';
+      elNewUserPass.value = '';
+      refreshUserList();
+    } catch (e) {
+      alert('Ekleme hatası: ' + e.message);
+    } finally {
+      elBtnAddUser.disabled = false;
+    }
+  });
+
+  // Slave büyük buton — sadece tıklayınca aynı üretim akışını tetikle
+  elBtnProduceSlave.addEventListener('click', () => elBtnProduce.click());
+
   // ── Apps Script API URL yönetimi + ping ───────────────────────────────
   async function pingApi() {
     try {
@@ -778,4 +933,11 @@
 
   // Açılışta ping
   pingApi();
+
+  // Açılışta auth varsa otomatik login
+  const savedAuth = getAuth();
+  if (savedAuth && savedAuth.user && savedAuth.role) {
+    applyRole(savedAuth.user, savedAuth.role);
+    logInfo('Otomatik giriş: ' + savedAuth.user + ' (' + savedAuth.role + ')');
+  }
 })();

@@ -87,6 +87,65 @@
       if (!json.ok) throw new Error('List fail: ' + json.error);
       return json.data;
     }
+
+    // ── Authentication & User Management ────────────────────────────────
+
+    /** Login — { ok, role: 'master'|'slave' } veya { ok: false, error } döner */
+    async login(user, pass) {
+      const r = await fetch(this.baseUrl + '?action=login' +
+        '&user=' + encodeURIComponent(user) +
+        '&pass=' + encodeURIComponent(pass));
+      if (!r.ok) throw new Error('Login HTTP ' + r.status);
+      return await r.json();
+    }
+
+    /** Kullanıcı listesi (master only). */
+    async listUsers(byUser) {
+      const r = await fetch(this.baseUrl + '?action=listUsers&by=' + encodeURIComponent(byUser));
+      if (!r.ok) throw new Error('ListUsers HTTP ' + r.status);
+      const json = await r.json();
+      if (!json.ok) throw new Error(json.error);
+      return json.users;
+    }
+
+    /** Yeni kullanıcı ekle (master only). */
+    async addUser(user, pass, role, byUser) {
+      const r = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'addUser', user, pass, role, by: byUser }),
+      });
+      if (!r.ok) throw new Error('AddUser HTTP ' + r.status);
+      const json = await r.json();
+      if (!json.ok) throw new Error(json.error);
+      return json;
+    }
+
+    /** Kullanıcı sil (master only, kendini silemez). */
+    async deleteUser(user, byUser) {
+      const r = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'deleteUser', user, by: byUser }),
+      });
+      if (!r.ok) throw new Error('DeleteUser HTTP ' + r.status);
+      const json = await r.json();
+      if (!json.ok) throw new Error(json.error);
+      return json;
+    }
+
+    /** Şifre değiştir (master herkesin, slave kendi). */
+    async changePassword(user, newPass, byUser) {
+      const r = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'changePassword', user, newPass, by: byUser }),
+      });
+      if (!r.ok) throw new Error('ChangePassword HTTP ' + r.status);
+      const json = await r.json();
+      if (!json.ok) throw new Error(json.error);
+      return json;
+    }
   }
 
   global.ProductionApi = ProductionApi;

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vili-Plc Üretim Aracı</title>
+  <title>DERKO PLC — Üretim Aracı</title>
   <style>
     :root {
       --bg: #1e1e1e;
@@ -24,52 +24,47 @@
       min-height: 100vh;
     }
     .container { max-width: 900px; margin: 0 auto; }
-    h1 {
-      font-size: 22px; margin: 0 0 4px 0;
-      color: var(--accent);
-    }
+    h1 { font-size: 22px; margin: 0 0 4px 0; color: var(--accent); }
     .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
 
     .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 18px;
-      margin-bottom: 16px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 18px; margin-bottom: 16px;
     }
     .card h2 {
       font-size: 15px; margin: 0 0 12px 0;
       color: var(--text); font-weight: 600;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border); padding-bottom: 8px;
     }
 
     button {
       background: var(--accent); color: white;
       border: none; padding: 10px 18px;
       font-size: 14px; font-weight: 500;
-      border-radius: 5px; cursor: pointer;
-      transition: background 0.15s;
+      border-radius: 5px; cursor: pointer; transition: background 0.15s;
     }
     button:hover:not(:disabled) { background: #5cb0ff; }
     button:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
     button.danger { background: var(--err); }
     button.danger:hover:not(:disabled) { background: #ff5c50; }
+    button.small { padding: 5px 10px; font-size: 12px; }
 
     .info-grid {
-      display: grid; grid-template-columns: 130px 1fr; gap: 8px 16px;
-      font-size: 13px;
+      display: grid; grid-template-columns: 130px 1fr; gap: 8px 16px; font-size: 13px;
     }
     .info-grid .label { color: var(--muted); }
     .info-grid .val { color: var(--text); font-family: 'Consolas', monospace; }
     .info-grid .val.empty { color: #555; font-style: italic; }
 
+    input[type=text], input[type=password], input[type=number], select {
+      background: #222; color: var(--text); border: 1px solid var(--border);
+      padding: 6px 10px; border-radius: 4px; font-family: inherit;
+    }
+
     #log {
-      background: #111; color: #ddd;
-      padding: 12px; border-radius: 5px;
+      background: #111; color: #ddd; padding: 12px; border-radius: 5px;
       font-family: 'Consolas', monospace; font-size: 12px;
-      height: 280px; overflow-y: auto;
-      white-space: pre-wrap; word-break: break-all;
+      height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
       border: 1px solid var(--border);
     }
     .log-time { color: #888; }
@@ -80,37 +75,112 @@
 
     .status-dot {
       display: inline-block; width: 9px; height: 9px;
-      border-radius: 50%; background: #555;
-      margin-right: 6px; vertical-align: middle;
+      border-radius: 50%; background: #555; margin-right: 6px; vertical-align: middle;
     }
     .status-dot.on  { background: var(--ok); }
     .status-dot.err { background: var(--err); }
 
     .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .browser-warn {
-      background: #4a3a1a; border: 1px solid var(--warn);
-      color: #ffc987; padding: 10px 14px; border-radius: 5px;
-      margin-bottom: 16px; font-size: 13px; display: none;
+
+    /* ── Login overlay ──────────────────────────────────────────── */
+    #loginOverlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+      display: flex; align-items: center; justify-content: center; z-index: 1000;
+    }
+    .login-card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 32px; min-width: 360px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+    .login-card h1 {
+      font-size: 28px; text-align: center; color: var(--accent);
+      margin: 0 0 6px 0; letter-spacing: 2px; font-weight: 700;
+    }
+    .login-card .sub {
+      font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 24px;
+    }
+    .login-card .field { margin-bottom: 12px; }
+    .login-card .field label {
+      display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px;
+    }
+    .login-card .field input { width: 100%; padding: 10px; font-size: 14px; }
+    .login-card .err {
+      font-size: 12px; color: var(--err); margin: 8px 0; min-height: 14px;
+    }
+    .login-card .btn-login {
+      width: 100%; padding: 12px; font-size: 14px; font-weight: 600;
+    }
+    .login-info {
+      margin-top: 16px; font-size: 11px; color: var(--muted); text-align: center;
+    }
+
+    /* ── Role-based gösterim ────────────────────────────────────── */
+    body[data-role="slave"] .role-master-only { display: none !important; }
+    body:not([data-role]) .role-after-login { display: none; }
+    body[data-role] #loginOverlay { display: none; }
+
+    /* User badge */
+    .user-badge {
+      float: right; font-size: 12px; color: var(--muted);
+      background: var(--panel); padding: 4px 10px; border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    .user-badge .username { color: var(--accent); font-weight: 600; }
+    .user-badge .role { color: var(--warn); margin-left: 4px; }
+    .user-badge button { background: transparent; color: var(--muted); padding: 2px 8px; font-size: 11px; margin-left: 8px; }
+
+    /* Slave production big button */
+    .slave-big-btn {
+      width: 100%; padding: 30px; font-size: 24px; font-weight: 700;
+      background: #4caf50; margin-top: 12px;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Vili-Plc Üretim Aracı
-      <span id="toolVersion" style="font-size: 13px; color: var(--muted); font-weight: normal; margin-left: 8px;">
-        v19
+
+  <!-- ════════════════ LOGIN OVERLAY ════════════════════════════════════ -->
+  <div id="loginOverlay">
+    <div class="login-card">
+      <h1>DERKO PLC</h1>
+      <div class="sub">Üretim Aracı — Giriş Yap</div>
+      <div class="field">
+        <label>Kullanıcı Adı</label>
+        <input type="text" id="loginUser" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>Şifre</label>
+        <input type="password" id="loginPass" autocomplete="current-password" />
+      </div>
+      <div class="err" id="loginErr"></div>
+      <button id="btnLogin" class="btn-login">Giriş</button>
+      <div class="login-info">© Derko Elektronik</div>
+    </div>
+  </div>
+
+  <!-- ════════════════ ANA SAYFA (login sonrası) ═══════════════════════ -->
+  <div class="container role-after-login">
+    <h1>
+      DERKO PLC — Üretim Aracı
+      <span id="toolVersion" style="font-size: 13px; color: var(--muted); font-weight: normal; margin-left: 8px;">v20</span>
+      <span class="user-badge">
+        <span id="badgeUser" class="username">—</span>
+        <span id="badgeRole" class="role">—</span>
+        <button id="btnLogout">Çıkış</button>
       </span>
     </h1>
-    <div class="subtitle">PCB programlama — WebUSB + ST-Link, tarayıcı tabanlı</div>
+    <div class="subtitle">PCB programlama — WebUSB + ST-Link</div>
 
-    <div id="browserWarn" class="browser-warn">
-      ⚠️ Bu tarayıcı WebUSB desteklemiyor. Chrome veya Edge kullanın.
-    </div>
-
-    <!-- ST-Link bağlantı kartı -->
+    <!-- ─── PLC Model + ST-Link bağlantı (her iki rol) ─── -->
     <div class="card">
       <h2><span id="dotStlink" class="status-dot"></span>ST-Link Bağlantısı</h2>
       <div class="info-grid">
+        <div class="label">PLC Model:</div>
+        <div>
+          <select id="plcModel" style="padding: 6px 10px; min-width: 200px;">
+            <option value="vili2_mini">Vili2 Mini Plc</option>
+            <!-- ileride başka modeller -->
+          </select>
+        </div>
         <div class="label">Durum:</div>
         <div class="val empty" id="stlinkStatus">Bağlı değil</div>
         <div class="label">Versiyon:</div>
@@ -124,60 +194,41 @@
       </div>
     </div>
 
-    <!-- Hedef MCU bilgi kartı -->
-    <div class="card">
-      <h2><span id="dotTarget" class="status-dot"></span>Hedef MCU</h2>
+    <!-- ─── Hedef MCU (sadece master — test için) ─── -->
+    <div class="card role-master-only">
+      <h2><span id="dotTarget" class="status-dot"></span>Hedef MCU (Test)</h2>
       <div class="info-grid">
-        <div class="label">Besleme (VAREF):</div>
-        <div class="val empty" id="tgtVoltage">—</div>
-        <div class="label">Chip Model:</div>
-        <div class="val empty" id="tgtModel">—</div>
-        <div class="label">DEV_ID / REV_ID:</div>
-        <div class="val empty" id="tgtDevRev">—</div>
-        <div class="label">Flash Boyutu:</div>
-        <div class="val empty" id="tgtFlash">—</div>
-        <div class="label">UID (96-bit):</div>
-        <div class="val empty" id="tgtUid">—</div>
+        <div class="label">Besleme (VAREF):</div> <div class="val empty" id="tgtVoltage">—</div>
+        <div class="label">Chip Model:</div>      <div class="val empty" id="tgtModel">—</div>
+        <div class="label">DEV_ID / REV_ID:</div> <div class="val empty" id="tgtDevRev">—</div>
+        <div class="label">Flash Boyutu:</div>    <div class="val empty" id="tgtFlash">—</div>
+        <div class="label">UID (96-bit):</div>    <div class="val empty" id="tgtUid">—</div>
       </div>
       <div class="btn-row" style="margin-top: 14px;">
         <button id="btnReadChip" disabled>Chip Bilgisi Oku</button>
       </div>
     </div>
 
-    <!-- Flash işlemleri kartı -->
-    <div class="card">
-      <h2><span id="dotFlash" class="status-dot"></span>Flash İşlemleri</h2>
-
-      <!-- Mass erase + CPU kontrol satırı -->
-      <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">
-        ⚠️ Mass Erase tüm flash'ı (bootloader dahil) siler.
-      </div>
-      <div class="btn-row" style="margin-bottom: 16px;">
-        <button id="btnMassErase" class="danger" disabled>Mass Erase (Tüm Flash Sil)</button>
+    <!-- ─── Flash İşlemleri (sadece master — test) ─── -->
+    <div class="card role-master-only">
+      <h2><span id="dotFlash" class="status-dot"></span>Flash İşlemleri (Test)</h2>
+      <div class="btn-row" style="margin-bottom: 14px;">
+        <button id="btnMassErase" class="danger" disabled>Mass Erase</button>
         <button id="btnHalt" disabled>CPU Halt</button>
         <button id="btnRun" disabled>CPU Run</button>
         <button id="btnReset" disabled>System Reset</button>
       </div>
-
-      <!-- Tekil file picker (test için) -->
-      <div style="border-top: 1px solid var(--border); padding-top: 14px;">
+      <div style="border-top: 1px solid var(--border); padding-top: 12px;">
         <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">Tekil dosya (test):</div>
-        <div class="info-grid" style="grid-template-columns: 130px 1fr;">
+        <div class="info-grid">
           <div class="label">Dosya:</div>
           <div>
-            <input type="file" id="binFile" accept=".bin"
-                   style="color: var(--text); font-size: 13px;" />
+            <input type="file" id="binFile" accept=".bin" style="color: var(--text); font-size: 13px;" />
             <span id="binFileInfo" style="margin-left: 10px; color: var(--muted); font-size: 12px;"></span>
           </div>
-          <div class="label">Başlangıç adresi:</div>
+          <div class="label">Adres:</div>
           <div>
-            <input type="text" id="binAddr" value="0x08000000"
-                   style="background: #222; color: var(--text); border: 1px solid var(--border);
-                          padding: 6px 10px; border-radius: 4px; font-family: 'Consolas', monospace;
-                          width: 130px;" />
-            <span style="color: var(--muted); font-size: 12px; margin-left: 10px;">
-              0x08000000 = Bootloader · 0x08001000 = Firmware
-            </span>
+            <input type="text" id="binAddr" value="0x08000000" style="width: 130px; font-family: 'Consolas', monospace;" />
           </div>
         </div>
         <div class="btn-row" style="margin-top: 12px;">
@@ -186,104 +237,109 @@
       </div>
     </div>
 
-    <!-- Üretim akışı kartı -->
+    <!-- ─── PCB Üretim (her iki rol) ─── -->
     <div class="card">
-      <h2><span id="dotProd" class="status-dot"></span>PCB Üretim (Otomatik Akış)</h2>
+      <h2><span id="dotProd" class="status-dot"></span>PCB Üretim</h2>
       <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">
-        Mass Erase → Bootloader yaz → Firmware (footer'lı) yaz → Verify → Reset
+        Mass Erase → Bootloader → Firmware (footer'lı) → Verify → Reset → Sheet kayıt
       </div>
 
       <div class="info-grid" style="grid-template-columns: 160px 1fr; gap: 10px 16px;">
-        <div class="label">Bootloader (.bin):</div>
-        <div>
-          <input type="file" id="prodBootFile" accept=".bin"
-                 style="color: var(--text); font-size: 13px;" />
+
+        <!-- Master için file pickers — slave göremez -->
+        <div class="label role-master-only">Bootloader (.bin):</div>
+        <div class="role-master-only">
+          <input type="file" id="prodBootFile" accept=".bin" style="color: var(--text); font-size: 13px;" />
           <span id="prodBootInfo" style="margin-left: 10px; color: var(--muted); font-size: 12px;"></span>
         </div>
-
-        <div class="label">Firmware (.bin):</div>
-        <div>
-          <input type="file" id="prodFwFile" accept=".bin"
-                 style="color: var(--text); font-size: 13px;" />
+        <div class="label role-master-only">Firmware (.bin):</div>
+        <div class="role-master-only">
+          <input type="file" id="prodFwFile" accept=".bin" style="color: var(--text); font-size: 13px;" />
           <span id="prodFwInfo" style="margin-left: 10px; color: var(--muted); font-size: 12px;"></span>
         </div>
 
         <div class="label">Firmware Versiyon:</div>
         <div style="display: flex; gap: 6px; align-items: center;">
-          <input type="number" id="prodMajor" value="5" min="0" max="255"
-                 style="background: #222; color: var(--text); border: 1px solid var(--border);
-                        padding: 6px 8px; border-radius: 4px; width: 55px; text-align: center;" />
+          <input type="number" id="prodMajor" value="5" min="0" max="255" style="width: 55px; text-align: center;" />
           <span style="color: var(--muted);">.</span>
-          <input type="number" id="prodMinor" value="0" min="0" max="255"
-                 style="background: #222; color: var(--text); border: 1px solid var(--border);
-                        padding: 6px 8px; border-radius: 4px; width: 55px; text-align: center;" />
+          <input type="number" id="prodMinor" value="0" min="0" max="255" style="width: 55px; text-align: center;" />
           <span style="color: var(--muted);">.</span>
-          <input type="number" id="prodPatch" value="1" min="0" max="255"
-                 style="background: #222; color: var(--text); border: 1px solid var(--border);
-                        padding: 6px 8px; border-radius: 4px; width: 55px; text-align: center;" />
-          <span style="color: var(--muted); font-size: 12px; margin-left: 8px;">major.minor.patch</span>
+          <input type="number" id="prodPatch" value="1" min="0" max="255" style="width: 55px; text-align: center;" />
         </div>
 
         <div class="label">Operatör:</div>
         <div>
-          <input type="text" id="prodOperator" placeholder="Adın (örn. Ali)"
-                 style="background: #222; color: var(--text); border: 1px solid var(--border);
-                        padding: 6px 10px; border-radius: 4px; width: 200px;" />
-          <span style="color: var(--muted); font-size: 12px; margin-left: 10px;">
-            (Sheet'te kayda eklenir)
-          </span>
+          <input type="text" id="prodOperator" placeholder="Adın" style="width: 200px;" />
         </div>
 
         <div class="label">Müşteri / Notlar:</div>
         <div>
-          <input type="text" id="prodNotes" placeholder="Boş bırakılabilir"
-                 style="background: #222; color: var(--text); border: 1px solid var(--border);
-                        padding: 6px 10px; border-radius: 4px; width: 300px;" />
+          <input type="text" id="prodNotes" placeholder="Boş bırakılabilir" style="width: 300px;" />
         </div>
       </div>
 
-      <div style="margin-top: 12px; padding: 10px; background: #222; border-radius: 5px;">
-        <div style="font-size: 12px; color: var(--muted); margin-bottom: 6px;">
-          🌐 Apps Script API URL (Manage Deployments → New Version → URL aynı kalır; yeni deployment yaparsan değişir):
-        </div>
+      <!-- API URL — sadece master -->
+      <div class="role-master-only" style="margin-top: 12px; padding: 10px; background: #222; border-radius: 5px;">
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 6px;">🌐 Apps Script API URL:</div>
         <div style="display: flex; gap: 6px; align-items: center;">
-          <input type="text" id="apiUrlInput"
-                 placeholder="https://script.google.com/macros/s/.../exec"
-                 style="background: #111; color: var(--text); border: 1px solid var(--border);
-                        padding: 6px 10px; border-radius: 4px; font-family: 'Consolas', monospace;
-                        font-size: 11px; flex: 1;" />
-          <button id="btnSaveApiUrl" style="padding: 6px 14px; font-size: 12px;">Kaydet + Test</button>
+          <input type="text" id="apiUrlInput" style="flex: 1; font-family: 'Consolas', monospace; font-size: 11px;" />
+          <button id="btnSaveApiUrl" class="small">Kaydet + Test</button>
         </div>
-        <div id="apiStatus" style="margin-top: 6px; font-size: 12px; color: var(--muted);">
+        <div style="margin-top: 6px; font-size: 12px; color: var(--muted);">
           API: <span id="apiStatusText">kontrol ediliyor…</span>
         </div>
       </div>
 
-      <div class="btn-row" style="margin-top: 16px;">
+      <!-- Master normal buton, slave büyük yeşil buton -->
+      <div class="btn-row role-master-only" style="margin-top: 16px;">
         <button id="btnProduce" disabled style="background: #4caf50; font-weight: 600; padding: 12px 28px;">
           🏭 PCB Üret (Tüm Akış)
         </button>
       </div>
+      <button id="btnProduceSlave" class="slave-big-btn" style="display: none;">
+        🏭 PCB ÜRET
+      </button>
     </div>
 
-    <!-- Log paneli -->
+    <!-- ─── Kullanıcı Yönetimi (sadece master) ─── -->
+    <div class="card role-master-only">
+      <h2><span class="status-dot on"></span>Kullanıcılar</h2>
+      <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">
+        Yeni master/slave ekle, mevcut kullanıcıları sil.
+      </div>
+      <div id="userList" style="font-family: 'Consolas', monospace; font-size: 13px; margin-bottom: 12px;"></div>
+
+      <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">Yeni Kullanıcı:</div>
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+          <input type="text" id="newUserName" placeholder="Kullanıcı adı" style="width: 160px;" />
+          <input type="text" id="newUserPass" placeholder="Şifre" style="width: 140px;" />
+          <select id="newUserRole" style="padding: 6px 10px;">
+            <option value="slave">Slave</option>
+            <option value="master">Master</option>
+          </select>
+          <button id="btnAddUser" class="small">Ekle</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Log ─── -->
     <div class="card">
       <h2>Log</h2>
       <div id="log"></div>
       <div class="btn-row" style="margin-top: 10px;">
-        <button id="btnClearLog" style="background: #555;">Logu Temizle</button>
+        <button id="btnClearLog" class="small" style="background: #555;">Logu Temizle</button>
       </div>
     </div>
   </div>
 
-  <!-- Modüller (sıra önemli — bağımlılık zinciri)
-       Versiyon query string — browser cache bypass; her güncelleme sonrası artır. -->
-  <script src="js/stlink-usb.js?v=19"></script>
-  <script src="js/stlink-cmd.js?v=19"></script>
-  <script src="js/stm32f0.js?v=19"></script>
-  <script src="js/stm32f0-flash.js?v=19"></script>
-  <script src="js/firmware-footer.js?v=19"></script>
-  <script src="js/api.js?v=19"></script>
-  <script src="js/app.js?v=19"></script>
+  <!-- Scripts — version ?v=N ile cache invalidation -->
+  <script src="js/stlink-usb.js?v=20"></script>
+  <script src="js/stlink-cmd.js?v=20"></script>
+  <script src="js/stm32f0.js?v=20"></script>
+  <script src="js/stm32f0-flash.js?v=20"></script>
+  <script src="js/firmware-footer.js?v=20"></script>
+  <script src="js/api.js?v=20"></script>
+  <script src="js/app.js?v=20"></script>
 </body>
 </html>
