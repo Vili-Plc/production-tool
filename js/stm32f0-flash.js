@@ -176,45 +176,91 @@
     }
 
     /**
-     * Bir veri buffer'ını adres aralığına yaz.
-     * F030 sadece 16-bit (half-word) yazma destekler — buffer 2 katı uzunluk gerek.
-     * ST-Link WRITEMEM_32BIT komutu otomatik halfword'lere böler (driver işi).
+     * Bir veri buffer'ını flash adres aralığına yaz.
+     * F030 yalnız 16-bit (halfword) yazma destekler — writeMemory16 kullanılır.
      * NOT: Önce sayfa(lar) silinmiş olmalı (0xFFFF doluyken yazılabilir).
      *
      * @param {number} addr   Flash başlangıç adresi (2-byte hizalı)
-     * @param {Uint8Array} data
+     * @param {Uint8Array} data  Length 2 katı; tek byte'lar 0xFF ile pad'lenir.
+     * @param {function} [onProgress]  (writtenBytes, totalBytes) callback
      */
-    async programBuffer(addr, data) {
+    async programBuffer(addr, data, onProgress) {
       if (addr & 1) throw new Error('Adres 2-byte hizalı olmalı');
-      if (data.length & 1) throw new Error('Uzunluk 2 katı olmalı');
+
+      // Tek byte ile bitiyorsa 0xFF ile pad (halfword tamamla)
+      let workData = data;
+      if (data.length & 1) {
+        workData = new Uint8Array(data.length + 1);
+        workData.set(data);
+        workData[data.length] = 0xFF;
+      }
 
       await this.waitBusy();
       // CR.PG = 1
       let cr = await this.readCR();
       await this.cmd.writeDebugReg(FLASH.CR, cr | CR_PG);
 
-      // Chunk'lara böl — ST-Link writeMemory32 max 1024 byte
-      // Ve adres her zaman 4-byte hizalı olmalı writeMemory32 için
+      // Chunk'lara böl — ST-Link writeMemory16 max 1024 byte
       const CHUNK = 1024;
       let off = 0;
-      while (off < data.length) {
-        const remaining = data.length - off;
-        const chunkLen = Math.min(CHUNK, remaining);
+      try {
+        while (off < workData.length) {
+          const remaining = workData.length - off;
+          const chunkLen = Math.min(CHUNK, remaining);
+          const chunkBuf = workData.subarray(off, off + chunkLen);
 
-        // 4 byte hizalı değilse padding (writeMemory32 4 katı ister)
-        const padded = chunkLen + ((4 - (chunkLen & 3)) & 3);
-        const chunkBuf = new Uint8Array(padded);
-        chunkBuf.fill(0xFF);  // pad bytes 0xFF (flash erased state — etkisiz)
-        chunkBuf.set(data.subarray(off, off + chunkLen));
+          await this.cmd.writeMemory16(addr + off, chunkBuf);
+          await this.waitBusy();
+          off += chunkLen;
 
-        await this.cmd.writeMemory32(addr + off, chunkBuf);
-        await this.waitBusy();
-        off += chunkLen;
+          if (onProgress) onProgress(off, workData.length);
+        }
+      } finally {
+        // CR.PG = 0 (her durumda kapat)
+        cr = await this.readCR();
+        await this.cmd.writeDebugReg(FLASH.CR, cr & ~CR_PG);
+      }
+    }
+
+    /**
+     * Adres aralığını kapsayan sayfaları sil. Sadece gerekli sayfaları siler.
+     * @param {number} addr Sayfa hizalı olmayabilir; içeren sayfa bulunur
+     * @param {number} len Toplam byte
+     */
+    async eraseRange(addr, len) {
+      const startPage = Math.floor(addr / PAGE_SIZE) * PAGE_SIZE;
+      const endPage   = Math.floor((addr + len - 1) / PAGE_SIZE) * PAGE_SIZE;
+      for (let p = startPage; p <= endPage; p += PAGE_SIZE) {
+        await this.erasePage(p);
+      }
+    }
+
+    /**
+     * Yüksek seviyeli akış: erase + program + verify.
+     * @param {number} addr  başlangıç adresi
+     * @param {Uint8Array} data
+     * @param {function} [onProgress] (stage, current, total) — stage: 'erase'|'program'|'verify'
+     */
+    async eraseProgramVerify(addr, data, onProgress) {
+      // 1) Erase
+      const startPage = Math.floor(addr / PAGE_SIZE) * PAGE_SIZE;
+      const endPage   = Math.floor((addr + data.length - 1) / PAGE_SIZE) * PAGE_SIZE;
+      const totalPages = (endPage - startPage) / PAGE_SIZE + 1;
+      let pageDone = 0;
+      for (let p = startPage; p <= endPage; p += PAGE_SIZE) {
+        await this.erasePage(p);
+        pageDone++;
+        if (onProgress) onProgress('erase', pageDone, totalPages);
       }
 
-      // CR.PG = 0
-      cr = await this.readCR();
-      await this.cmd.writeDebugReg(FLASH.CR, cr & ~CR_PG);
+      // 2) Program
+      await this.programBuffer(addr, data,
+        (w, t) => onProgress && onProgress('program', w, t));
+
+      // 3) Verify
+      const v = await this.verify(addr, data);
+      if (onProgress) onProgress('verify', data.length, data.length);
+      return v;
     }
 
     /**

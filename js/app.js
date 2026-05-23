@@ -35,6 +35,13 @@
   const elBtnHalt      = document.getElementById('btnHalt');
   const elBtnRun       = document.getElementById('btnRun');
   const elBtnReset     = document.getElementById('btnReset');
+  const elBinFile      = document.getElementById('binFile');
+  const elBinFileInfo  = document.getElementById('binFileInfo');
+  const elBinAddr      = document.getElementById('binAddr');
+  const elBtnProgram   = document.getElementById('btnProgram');
+
+  // Seçilen bin dosyasının içeriği (RAM'de tutulur)
+  let selectedBin = null;  // { name, bytes: Uint8Array }
 
   // Flash butonlarını topluca kontrol
   function setFlashButtonsEnabled(en) {
@@ -42,6 +49,19 @@
     elBtnHalt.disabled      = !en;
     elBtnRun.disabled       = !en;
     elBtnReset.disabled     = !en;
+    // Program butonu file VE bağlantı VE adres geçerli ise aktif
+    updateProgramButton();
+  }
+
+  function updateProgramButton() {
+    const ok = !!cmd && !!selectedBin && parseAddr(elBinAddr.value) !== null;
+    elBtnProgram.disabled = !ok;
+  }
+
+  function parseAddr(s) {
+    const v = parseInt((s || '').trim(), 16);
+    if (isNaN(v) || v < 0) return null;
+    return v;
   }
 
   // ── State ──────────────────────────────────────────────────────────────
@@ -369,6 +389,89 @@
       await cmd.systemReset();
       logOk('System reset gönderildi.');
     } catch (e) { logErr('Reset hatası: ' + e.message); }
+  });
+
+  // ── Event: File picker — bin dosyası seçildi ──────────────────────────
+  elBinFile.addEventListener('change', async () => {
+    const f = elBinFile.files[0];
+    if (!f) {
+      selectedBin = null;
+      elBinFileInfo.textContent = '';
+      updateProgramButton();
+      return;
+    }
+    try {
+      const buf = await f.arrayBuffer();
+      selectedBin = { name: f.name, bytes: new Uint8Array(buf) };
+      elBinFileInfo.textContent =
+        `${f.name} — ${selectedBin.bytes.length} byte (${(selectedBin.bytes.length/1024).toFixed(2)} KB)`;
+      logInfo(`Dosya seçildi: ${f.name} (${selectedBin.bytes.length} byte)`);
+      updateProgramButton();
+    } catch (e) {
+      logErr('Dosya okuma hatası: ' + e.message);
+      selectedBin = null;
+      updateProgramButton();
+    }
+  });
+
+  elBinAddr.addEventListener('input', updateProgramButton);
+
+  // ── Event: Erase + Program + Verify ───────────────────────────────────
+  elBtnProgram.addEventListener('click', async () => {
+    if (!cmd || !selectedBin) return;
+    const addr = parseAddr(elBinAddr.value);
+    if (addr === null) { logErr('Adres geçersiz'); return; }
+
+    // Confirm — yazılan adres bootloader değilse uyarma yok; bootloader silinecekse uyar
+    if (addr === 0x08000000) {
+      const ok = confirm(
+        `Bootloader alanı (0x08000000) programlanacak.\n\n` +
+        `Dosya: ${selectedBin.name} (${selectedBin.bytes.length} byte)\n\n` +
+        `Mevcut bootloader silinip yenisi yazılacak. Devam edilsin mi?`);
+      if (!ok) return;
+    }
+
+    setFlashButtonsEnabled(false);
+    elDotFlash.className = 'status-dot';
+    try {
+      await prepareDebugMode();
+
+      const flash = new Stm32f0Flash(cmd);
+      logInfo('CPU halt…');           await cmd.halt();
+      logInfo('FPEC unlock…');        await flash.unlock();
+
+      logInfo(`Erase + Program + Verify: 0x${addr.toString(16).toUpperCase()} ← ${selectedBin.name} (${selectedBin.bytes.length} byte)`);
+      const t0 = performance.now();
+
+      const result = await flash.eraseProgramVerify(addr, selectedBin.bytes, (stage, cur, tot) => {
+        // Her log spam yapmasın diye sadece milestone'larda
+        if (stage === 'erase' && (cur === 1 || cur === tot)) {
+          logInfo(`  Erase: sayfa ${cur}/${tot}`);
+        }
+        if (stage === 'program' && (cur === selectedBin.bytes.length || cur % 4096 === 0)) {
+          logInfo(`  Program: ${cur}/${tot} byte`);
+        }
+      });
+
+      const elapsed = performance.now() - t0;
+
+      if (result.match) {
+        logOk(`✓ Program + Verify OK — ${elapsed.toFixed(0)} ms (${(selectedBin.bytes.length/elapsed*1000).toFixed(0)} byte/sn)`);
+        elDotFlash.className = 'status-dot on';
+      } else {
+        logErr(`✗ Verify FAIL — adres 0x${result.firstMismatch.toString(16).toUpperCase()}: ` +
+               `beklenen 0x${result.expected.toString(16)}, okunan 0x${result.got.toString(16)}`);
+        elDotFlash.className = 'status-dot err';
+      }
+
+      await flash.lock();
+      logInfo('FPEC kilitlendi.');
+    } catch (e) {
+      logErr('Program hatası: ' + e.message);
+      elDotFlash.className = 'status-dot err';
+    } finally {
+      setFlashButtonsEnabled(true);
+    }
   });
 
   // ── Event: Bağlantıyı kes ──────────────────────────────────────────────

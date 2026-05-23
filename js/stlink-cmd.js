@@ -38,6 +38,7 @@
     APIV2_NRST_LOW:       0x39,  // hard reset assert
     APIV2_NRST_HIGH:      0x3A,
     APIV2_NRST_PULSE:     0x3B,
+    APIV2_WRITEMEM_16BIT: 0x47,  // halfword yazma — F030 flash için ZORUNLU
   };
 
   // SWD/JTAG mode parametreleri (APIV2_ENTER üçüncü byte'ı)
@@ -295,6 +296,31 @@
       ];
       await this.usb.sendCommand(cmd);
       // Ayrı bulk OUT — data byte'ları
+      await this.usb.device.transferOut(this.usb.epOut, data);
+    }
+
+    /**
+     * Bellek yaz — 16-bit (halfword) chunk'larla. F030 flash bunu zorunlu kılar
+     * (word yazma PGERR verir). Adres 2-byte hizalı, length 2 katı.
+     * @param {number} addr  2-byte hizalı
+     * @param {Uint8Array} data  uzunluk 2 katı, max 1024
+     */
+    async writeMemory16(addr, data) {
+      if (addr & 1) throw new Error('Adres 2-byte hizalı olmalı');
+      if (data.length & 1) throw new Error('Uzunluk 2 katı olmalı');
+      if (data.length > 1024) throw new Error('Max 1024 byte tek seferde');
+
+      const len = data.length;
+      const cmd = [
+        STLINK_CMD.DEBUG_COMMAND, DBG.APIV2_WRITEMEM_16BIT,
+        (addr      ) & 0xFF,
+        (addr >>  8) & 0xFF,
+        (addr >> 16) & 0xFF,
+        (addr >> 24) & 0xFF,
+        (len ) & 0xFF,
+        (len >> 8) & 0xFF,
+      ];
+      await this.usb.sendCommand(cmd);
       await this.usb.device.transferOut(this.usb.epOut, data);
     }
 

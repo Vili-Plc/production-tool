@@ -143,14 +143,41 @@
     <!-- Flash işlemleri kartı -->
     <div class="card">
       <h2><span id="dotFlash" class="status-dot"></span>Flash İşlemleri</h2>
-      <div style="font-size: 12px; color: var(--muted); margin-bottom: 10px;">
-        ⚠️ Mass Erase tüm flash'ı (bootloader dahil) siler. PCB'yi yeniden programlamadan açılmaz.
+
+      <!-- Mass erase + CPU kontrol satırı -->
+      <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">
+        ⚠️ Mass Erase tüm flash'ı (bootloader dahil) siler.
       </div>
-      <div class="btn-row">
+      <div class="btn-row" style="margin-bottom: 16px;">
         <button id="btnMassErase" class="danger" disabled>Mass Erase (Tüm Flash Sil)</button>
         <button id="btnHalt" disabled>CPU Halt</button>
         <button id="btnRun" disabled>CPU Run</button>
         <button id="btnReset" disabled>System Reset</button>
+      </div>
+
+      <!-- File picker + program -->
+      <div style="border-top: 1px solid var(--border); padding-top: 14px;">
+        <div class="info-grid" style="grid-template-columns: 130px 1fr;">
+          <div class="label">Dosya:</div>
+          <div>
+            <input type="file" id="binFile" accept=".bin"
+                   style="color: var(--text); font-size: 13px;" />
+            <span id="binFileInfo" style="margin-left: 10px; color: var(--muted); font-size: 12px;"></span>
+          </div>
+          <div class="label">Başlangıç adresi:</div>
+          <div>
+            <input type="text" id="binAddr" value="0x08000000"
+                   style="background: #222; color: var(--text); border: 1px solid var(--border);
+                          padding: 6px 10px; border-radius: 4px; font-family: 'Consolas', monospace;
+                          width: 130px;" />
+            <span style="color: var(--muted); font-size: 12px; margin-left: 10px;">
+              0x08000000 = Bootloader · 0x08001000 = Firmware
+            </span>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top: 12px;">
+          <button id="btnProgram" disabled>Erase + Program + Verify</button>
+        </div>
       </div>
     </div>
 
@@ -166,10 +193,10 @@
 
   <!-- Modüller (sıra önemli — bağımlılık zinciri)
        Versiyon query string — browser cache bypass; her güncelleme sonrası artır. -->
-  <script src="js/stlink-usb.js?v=6"></script>
-  <script src="js/stlink-cmd.js?v=6"></script>
-  <script src="js/stm32f0.js?v=6"></script>
-  <script src="js/stm32f0-flash.js?v=6"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/stlink-usb.js?v=7"></script>
+  <script src="js/stlink-cmd.js?v=7"></script>
+  <script src="js/stm32f0.js?v=7"></script>
+  <script src="js/stm32f0-flash.js?v=7"></script>
+  <script src="js/app.js?v=7"></script>
 </body>
 </html>
