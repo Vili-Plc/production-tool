@@ -63,6 +63,55 @@
   // Sayfa boyutu (F030 = 1 KB / sayfa)
   const PAGE_SIZE = 1024;
 
+  // SRAM base (F030 8KB RAM)
+  const SRAM_BASE = 0x20000000;
+
+  /**
+   * Flash writer ARM Thumb kodu (26 byte).
+   * Kaynak: webstlink (devanlai/webstlink) stm32fp.js — open source.
+   *
+   * Parametreler (CPU register'ları üzerinden):
+   *   R0 = SRC data adresi (RAM, halfword'lerden oluşur)
+   *   R1 = DST flash adresi (16-bit hizalı)
+   *   R2 = byte count (2 katı, > 0)
+   *   R4 = FLASH_SR adresi (= 0x4002200C)
+   *   R5 = FLASH_SR BUSY bit mask (= 0x01)
+   *   R6 = FLASH_SR EOP bit mask  (= 0x20)
+   *   PC = writer code adresi | 1 (thumb bit)
+   *
+   * Algoritma:
+   *   while (R2 > 0) {
+   *     *R1 = *R0;                   // halfword copy SRC→FLASH
+   *     while (*R4 & R5) ;           // BUSY bekle
+   *     if (!(*R4 & R6)) break;      // EOP set değilse hata, çık
+   *     R0 += 2; R1 += 2; R2 -= 2;
+   *   }
+   *   bkpt 0x00;                     // CPU'yu halt et, host devam alır
+   */
+  const FLASH_WRITER_F0_CODE = new Uint8Array([
+    // write:
+    0x03, 0x88,  // ldrh r3, [r0]
+    0x0b, 0x80,  // strh r3, [r1]
+    // test_busy:
+    0x23, 0x68,  // ldr  r3, [r4]
+    0x2b, 0x42,  // tst  r3, r5
+    0xfc, 0xd1,  // bne  test_busy
+    0x33, 0x42,  // tst  r3, r6
+    0x04, 0xd0,  // beq  exit
+    0x02, 0x30,  // adds r0, #2
+    0x02, 0x31,  // adds r1, #2
+    0x02, 0x3a,  // subs r2, #2
+    0x00, 0x2a,  // cmp  r2, #0
+    0xf3, 0xd1,  // bne  write
+    // exit:
+    0x00, 0xbe,  // bkpt 0x00
+  ]);
+
+  // RAM yerleşimi (writer + data buffer)
+  const WRITER_ADDR    = SRAM_BASE + 0x000;   // 0x20000000 — writer kodu (32 byte rezerve)
+  const DATA_BUF_ADDR  = SRAM_BASE + 0x100;   // 0x20000100 — data buffer (1024 byte rezerve)
+  const DATA_BUF_SIZE  = 1024;                // her seferde 1 KB yüklenir
+
   class Stm32f0Flash {
     /** @param {StlinkCmd} cmd — Açık ST-Link, SWD mode'da */
     constructor(cmd) {
@@ -250,6 +299,82 @@
      * @param {Uint8Array} data
      * @param {function} [onProgress] (stage, current, total) — stage: 'erase'|'program'|'verify'
      */
+    /**
+     * Flash writer'ı RAM'a yükle (bir kez init).
+     * Sonra programBufferLoader her chunk için sadece data + register'ları set eder.
+     */
+    async initFlashWriter() {
+      console.log('[initFlashWriter] yazıcı kodu RAM\'a yükleniyor @ 0x' + WRITER_ADDR.toString(16));
+      // 26 byte writer → 28 byte padded (4 katı)
+      const padded = new Uint8Array(28);
+      padded.set(FLASH_WRITER_F0_CODE);
+      await this.cmd.writeMemory32(WRITER_ADDR, padded);
+      // Sabit register'ları set et (chunk'lar arası değişmez)
+      await this.cmd.writeReg(ARM_REG.R4, FLASH.SR);   // FLASH_SR adresi
+      await this.cmd.writeReg(ARM_REG.R5, SR_BSY);     // BUSY bit
+      await this.cmd.writeReg(ARM_REG.R6, SR_EOP);     // EOP bit
+    }
+
+    /**
+     * Flash'a programla — webstlink yöntemi (V2J46 firmware için gerekli):
+     *  1. Data RAM'a yüklenir (writeMemory32 — güvenli)
+     *  2. Register'lar set: R0=src R1=dst R2=len PC=writer
+     *  3. CPU run → writer kod SRAM→FLASH halfword yazar
+     *  4. BKPT'de halt, biz bekleriz
+     */
+    async programBufferLoader(addr, data, onProgress) {
+      if (addr & 1) throw new Error('Adres 2-byte hizalı olmalı');
+
+      let workData = data;
+      if (data.length & 1) {
+        workData = new Uint8Array(data.length + 1);
+        workData.set(data);
+        workData[data.length] = 0xFF;
+      }
+
+      await this.waitBusy();
+      const cr0 = await this.readCR();
+      await this.cmd.writeDebugReg(FLASH.CR, cr0 | CR_PG);
+      const cr1 = await this.readCR();
+      console.log(`[programLoader] CR after PG: 0x${cr1.toString(16)}`);
+      if (!(cr1 & CR_PG)) throw new Error(`PG biti set olmadı — CR=0x${cr1.toString(16)}`);
+
+      await this.initFlashWriter();
+
+      try {
+        let off = 0;
+        while (off < workData.length) {
+          const remaining = workData.length - off;
+          const chunkLen = Math.min(DATA_BUF_SIZE, remaining);
+          const aligned = chunkLen + ((4 - (chunkLen & 3)) & 3);
+          const ramBuf = new Uint8Array(aligned);
+          ramBuf.fill(0xFF);
+          ramBuf.set(workData.subarray(off, off + chunkLen));
+
+          console.log(`[loader] chunk flash=0x${(addr+off).toString(16)} len=${chunkLen}`);
+          await this.cmd.writeMemory32(DATA_BUF_ADDR, ramBuf);
+          await this.cmd.writeReg(ARM_REG.R0, DATA_BUF_ADDR);
+          await this.cmd.writeReg(ARM_REG.R1, addr + off);
+          await this.cmd.writeReg(ARM_REG.R2, chunkLen);
+          await this.cmd.writeReg(ARM_REG.PC, WRITER_ADDR | 1);  // thumb bit
+          await this.cmd.run();
+          await this.cmd.waitHalted(2000);
+          console.log(`[loader] chunk halted, done`);
+
+          const sr = await this.readSR();
+          if (sr & SR_PGERR)    throw new Error(`PGERR @ 0x${(addr+off).toString(16)}`);
+          if (sr & SR_WRPRTERR) throw new Error(`WRPRTERR @ 0x${(addr+off).toString(16)}`);
+
+          off += chunkLen;
+          if (onProgress) onProgress(off, workData.length);
+        }
+      } finally {
+        const cr = await this.readCR();
+        await this.cmd.writeDebugReg(FLASH.CR, cr & ~CR_PG);
+        await this.cmd.halt();  // CPU'yu güvenli halt'ta bırak
+      }
+    }
+
     async eraseProgramVerify(addr, data, onProgress) {
       // 1) Erase
       const startPage = Math.floor(addr / PAGE_SIZE) * PAGE_SIZE;
@@ -262,8 +387,8 @@
         if (onProgress) onProgress('erase', pageDone, totalPages);
       }
 
-      // 2) Program
-      await this.programBuffer(addr, data,
+      // 2) Program — webstlink loader yöntemi (V2J46 için gerekli)
+      await this.programBufferLoader(addr, data,
         (w, t) => onProgress && onProgress('program', w, t));
 
       // 3) Verify

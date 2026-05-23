@@ -39,6 +39,15 @@
     APIV2_NRST_HIGH:      0x3A,
     APIV2_NRST_PULSE:     0x3B,
     APIV2_WRITEMEM_16BIT: 0x47,  // halfword yazma — F030 flash için ZORUNLU
+    APIV2_READREG:        0x33,  // [0xF2, 0x33, reg_idx] → 8 byte, val @ offset 4
+    APIV2_WRITEREG:       0x34,  // [0xF2, 0x34, reg_idx, val(4)] → 2 byte status
+  };
+
+  // ARM Cortex-M0 register indices (ST-Link APIV2 protokolü)
+  const ARM_REG = {
+    R0: 0, R1: 1, R2: 2, R3: 3, R4: 4, R5: 5, R6: 6, R7: 7,
+    R8: 8, R9: 9, R10: 10, R11: 11, R12: 12,
+    SP: 13, LR: 14, PC: 15, PSR: 16, MSP: 17, PSP: 18,
   };
 
   // SWD/JTAG mode parametreleri (APIV2_ENTER üçüncü byte'ı)
@@ -350,9 +359,54 @@
       // AIRCR @ 0xE000ED0C, VECTKEY=0x05FA, SYSRESETREQ bit 2
       return await this.writeDebugReg(0xE000ED0C, 0x05FA0004);
     }
+
+    // ── ARM Core Register R/W ─────────────────────────────────────────────
+
+    /**
+     * Cortex-M0 core register oku (R0..R15, PSR).
+     * @param {number} regIdx — ARM_REG.R0..PSR
+     * @returns {number} 32-bit value
+     */
+    async readReg(regIdx) {
+      const cmd = [STLINK_CMD.DEBUG_COMMAND, DBG.APIV2_READREG, regIdx];
+      const resp = await this.usb.transact(cmd, 8);
+      // webstlink: value @ offset 4 (LE)
+      return (resp[4] | (resp[5] << 8) | (resp[6] << 16) | (resp[7] << 24)) >>> 0;
+    }
+
+    /** Cortex-M0 core register yaz. */
+    async writeReg(regIdx, value) {
+      const cmd = [STLINK_CMD.DEBUG_COMMAND, DBG.APIV2_WRITEREG, regIdx,
+        (value      ) & 0xFF,
+        (value >>  8) & 0xFF,
+        (value >> 16) & 0xFF,
+        (value >> 24) & 0xFF,
+      ];
+      const resp = await this.usb.transact(cmd, 2);
+      return resp[0] | (resp[1] << 8);
+    }
+
+    /**
+     * CPU'nun BKPT/halt state'ine ulaşmasını bekle (max timeoutMs).
+     * DHCSR.S_HALT (bit 17) set ise halted.
+     */
+    async waitHalted(timeoutMs = 5000) {
+      const t0 = performance.now();
+      while (true) {
+        // DHCSR @ 0xE000EDF0 — readMemory32 ile (readDebugReg V2J46'da güvensiz)
+        const buf = await this.readMemory32(0xE000EDF0, 4);
+        const dhcsr = (buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24)) >>> 0;
+        if (dhcsr & 0x00020000) return dhcsr;            // S_HALT bit set
+        if (performance.now() - t0 > timeoutMs) {
+          throw new Error(`CPU halt timeout (${timeoutMs} ms) — DHCSR=0x${dhcsr.toString(16)}`);
+        }
+        await new Promise(r => setTimeout(r, 2));
+      }
+    }
   }
 
-  global.StlinkCmd  = StlinkCmd;
-  global.STLINK_CMD = STLINK_CMD;
+  global.StlinkCmd   = StlinkCmd;
+  global.STLINK_CMD  = STLINK_CMD;
   global.STLINK_MODE = STLINK_MODE;
+  global.ARM_REG     = ARM_REG;
 })(window);
