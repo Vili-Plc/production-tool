@@ -27,13 +27,17 @@
   const DBG = {
     APIV2_ENTER:          0x30,  // [0xF2, 0x30, mode] — mode: 0xA3=SWD, 0xA4=JTAG
     APIV2_READ_IDCODES:   0x31,  // [0xF2, 0x31] → 12 byte: DAP_IDCODE + ekstra
+    APIV2_RESETSYS:       0x32,  // [0xF2, 0x32] reset hedef chip
+    APIV2_WRITEDEBUGREG:  0x35,  // [0xF2, 0x35, addr(4), val(4)] → 2 byte status
+    APIV2_READDEBUGREG:   0x36,  // [0xF2, 0x36, addr(4)] → 8 byte [status(2), val(4), pad(2)]
     EXIT:                 0x21,  // [0xF2, 0x21] — debug mode'dan çık
     READMEM_32BIT:        0x07,  // [0xF2, 0x07, addr(4), len(2)] → len byte data
-    APIV2_READMEM_32BIT:  0x07,  // alternatif isim
-    WRITEMEM_32BIT:       0x08,
+    WRITEMEM_32BIT:       0x08,  // [0xF2, 0x08, addr(4), len(2)] + ayrı bulk OUT data
     READMEM_8BIT:         0x0C,
-    APIV2_RESETSYS:       0x32,  // [0xF2, 0x32] reset hedef chip
-    APIV2_JTAG_RESET:     0x32,  // alternatif
+    WRITEMEM_8BIT:        0x0D,
+    APIV2_NRST_LOW:       0x39,  // hard reset assert
+    APIV2_NRST_HIGH:      0x3A,
+    APIV2_NRST_PULSE:     0x3B,
   };
 
   // SWD/JTAG mode parametreleri (APIV2_ENTER üçüncü byte'ı)
@@ -207,7 +211,7 @@
     /**
      * SWD üzerinden hedef bellekten 32-bit hizalı oku.
      * @param {number} addr  — 4-byte hizalı başlangıç adresi
-     * @param {number} len   — byte sayısı (4'ün katı, max 6144 — ST-Link sınırı)
+     * @param {number} len   — byte sayısı (4'ün katı, max 1024 — ST-Link sınırı)
      * @returns Uint8Array (len byte)
      */
     async readMemory32(addr, len) {
@@ -226,6 +230,93 @@
       ];
       await this.usb.sendCommand(cmd);
       return await this.usb.readResponse(len);
+    }
+
+    /**
+     * Tek bir 32-bit register oku — APIV2_READDEBUGREG (0x36).
+     * Cevap 8 byte: [status(2), value(4), pad(2)]
+     * Daha kısa olur readMemory32(addr, 4)'ten, peripheral register'lar için tercih.
+     */
+    async readDebugReg(addr) {
+      const cmd = [
+        STLINK_CMD.DEBUG_COMMAND, DBG.APIV2_READDEBUGREG,
+        (addr      ) & 0xFF,
+        (addr >>  8) & 0xFF,
+        (addr >> 16) & 0xFF,
+        (addr >> 24) & 0xFF,
+      ];
+      const resp = await this.usb.transact(cmd, 8);
+      // resp[0..1] = status, resp[2..5] = LE 32-bit value
+      const status = resp[0] | (resp[1] << 8);
+      const value  = (resp[2] | (resp[3] << 8) | (resp[4] << 16) | (resp[5] << 24)) >>> 0;
+      return { status, value };
+    }
+
+    /**
+     * Tek bir 32-bit register yaz — APIV2_WRITEDEBUGREG (0x35).
+     * Cevap 2 byte status.
+     */
+    async writeDebugReg(addr, value) {
+      const cmd = [
+        STLINK_CMD.DEBUG_COMMAND, DBG.APIV2_WRITEDEBUGREG,
+        (addr      ) & 0xFF,
+        (addr >>  8) & 0xFF,
+        (addr >> 16) & 0xFF,
+        (addr >> 24) & 0xFF,
+        (value      ) & 0xFF,
+        (value >>  8) & 0xFF,
+        (value >> 16) & 0xFF,
+        (value >> 24) & 0xFF,
+      ];
+      const resp = await this.usb.transact(cmd, 2);
+      return resp[0] | (resp[1] << 8);
+    }
+
+    /**
+     * Bellek yaz — bulk OUT ile data gönderilir.
+     * Tek 32-bit register için writeDebugReg kullan; bu bulk write için.
+     * @param {number} addr  4-byte hizalı
+     * @param {Uint8Array} data  uzunluk 4 katı, max 1024
+     */
+    async writeMemory32(addr, data) {
+      if (addr & 3) throw new Error('Adres 4-byte hizalı olmalı');
+      if (data.length & 3) throw new Error('Uzunluk 4 katı olmalı');
+      if (data.length > 1024) throw new Error('Max 1024 byte tek seferde');
+
+      const len = data.length;
+      const cmd = [
+        STLINK_CMD.DEBUG_COMMAND, DBG.WRITEMEM_32BIT,
+        (addr      ) & 0xFF,
+        (addr >>  8) & 0xFF,
+        (addr >> 16) & 0xFF,
+        (addr >> 24) & 0xFF,
+        (len ) & 0xFF,
+        (len >> 8) & 0xFF,
+      ];
+      await this.usb.sendCommand(cmd);
+      // Ayrı bulk OUT — data byte'ları
+      await this.usb.device.transferOut(this.usb.epOut, data);
+    }
+
+    // ── Cortex-M0 Debug Core kontrolü (DHCSR @ 0xE000EDF0) ────────────────
+    // DHCSR yazımı için bits[31:16] = DBGKEY = 0xA05F zorunlu.
+
+    /** CPU'yu durdur (halt). Flash erase/program öncesi tavsiye edilir. */
+    async halt() {
+      // DEBUGEN=1, HALT=1 → debug halted state
+      return await this.writeDebugReg(0xE000EDF0, 0xA05F0003);
+    }
+
+    /** CPU'yu çalıştır (run). Flash işlemleri sonrası. */
+    async run() {
+      // DEBUGEN=1, HALT=0 → run
+      return await this.writeDebugReg(0xE000EDF0, 0xA05F0001);
+    }
+
+    /** System reset (AIRCR.SYSRESETREQ). Reset sonrası chip yeniden başlar. */
+    async systemReset() {
+      // AIRCR @ 0xE000ED0C, VECTKEY=0x05FA, SYSRESETREQ bit 2
+      return await this.writeDebugReg(0xE000ED0C, 0x05FA0004);
     }
   }
 

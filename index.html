@@ -140,6 +140,20 @@
       </div>
     </div>
 
+    <!-- Flash işlemleri kartı -->
+    <div class="card">
+      <h2><span id="dotFlash" class="status-dot"></span>Flash İşlemleri</h2>
+      <div style="font-size: 12px; color: var(--muted); margin-bottom: 10px;">
+        ⚠️ Mass Erase tüm flash'ı (bootloader dahil) siler. PCB'yi yeniden programlamadan açılmaz.
+      </div>
+      <div class="btn-row">
+        <button id="btnMassErase" class="danger" disabled>Mass Erase (Tüm Flash Sil)</button>
+        <button id="btnHalt" disabled>CPU Halt</button>
+        <button id="btnRun" disabled>CPU Run</button>
+        <button id="btnReset" disabled>System Reset</button>
+      </div>
+    </div>
+
     <!-- Log paneli -->
     <div class="card">
       <h2>Log</h2>
@@ -152,9 +166,10 @@
 
   <!-- Modüller (sıra önemli — bağımlılık zinciri)
        Versiyon query string — browser cache bypass; her güncelleme sonrası artır. -->
-  <script src="js/stlink-usb.js?v=4"></script>
-  <script src="js/stlink-cmd.js?v=4"></script>
-  <script src="js/stm32f0.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/stlink-usb.js?v=5"></script>
+  <script src="js/stlink-cmd.js?v=5"></script>
+  <script src="js/stm32f0.js?v=5"></script>
+  <script src="js/stm32f0-flash.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>

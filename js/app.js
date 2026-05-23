@@ -29,6 +29,20 @@
   const elTgtDevRev    = document.getElementById('tgtDevRev');
   const elTgtFlash     = document.getElementById('tgtFlash');
   const elTgtUid       = document.getElementById('tgtUid');
+  // Flash kart
+  const elDotFlash     = document.getElementById('dotFlash');
+  const elBtnMassErase = document.getElementById('btnMassErase');
+  const elBtnHalt      = document.getElementById('btnHalt');
+  const elBtnRun       = document.getElementById('btnRun');
+  const elBtnReset     = document.getElementById('btnReset');
+
+  // Flash butonlarını topluca kontrol
+  function setFlashButtonsEnabled(en) {
+    elBtnMassErase.disabled = !en;
+    elBtnHalt.disabled      = !en;
+    elBtnRun.disabled       = !en;
+    elBtnReset.disabled     = !en;
+  }
 
   // ── State ──────────────────────────────────────────────────────────────
   const usb = new StlinkUsb();
@@ -81,6 +95,8 @@
     elBtnConnect.disabled = false;
     elBtnDisconnect.disabled = true;
     elBtnReadChip.disabled = true;
+    setFlashButtonsEnabled(false);
+    elDotFlash.className = 'status-dot';
     clearTargetUI();
   }
   function clearTargetUI() {
@@ -145,8 +161,9 @@
             (ver.swimVersion !== undefined ? `, swim=${ver.swimVersion}` : '') + ')');
       setVersionUI(ver);
 
-      // Chip okuma butonu artık aktif
+      // Chip okuma + flash butonları artık aktif
       elBtnReadChip.disabled = false;
+      setFlashButtonsEnabled(true);
     } catch (e) {
       logErr('Bağlantı hatası: ' + e.message);
       setErrorUI();
@@ -255,6 +272,103 @@
     } finally {
       elBtnReadChip.disabled = false;
     }
+  });
+
+  // ── ortak — DFU çıkışı + SWD enter (flash öncesi setup) ───────────────
+  async function prepareDebugMode() {
+    const mode = await cmd.getCurrentMode();
+    if (mode.mode === STLINK_MODE.DFU) {
+      logInfo('DFU mode → çıkış…');
+      await cmd.exitDfuMode();
+    }
+    const after = await cmd.getCurrentMode();
+    if (after.mode !== STLINK_MODE.DEBUG) {
+      logInfo(`Mode: ${after.modeName}, SWD'ye geçiliyor…`);
+      await cmd.enterSwdMode();
+    }
+  }
+
+  // ── Event: Mass Erase ─────────────────────────────────────────────────
+  elBtnMassErase.addEventListener('click', async () => {
+    if (!cmd) return;
+    const ok = confirm(
+      '⚠️ TÜM FLASH SİLİNECEK\n\n' +
+      'Bootloader + Firmware + Bytecode + Sembol — hepsi silinir.\n' +
+      'PCB yeniden programlanmadan ÇALIŞMAZ.\n\n' +
+      'Emin misin?'
+    );
+    if (!ok) return;
+
+    setFlashButtonsEnabled(false);
+    elDotFlash.className = 'status-dot';
+    try {
+      await prepareDebugMode();
+
+      const flash = new Stm32f0Flash(cmd);
+
+      logInfo('CPU halt ediliyor…');
+      await cmd.halt();
+      logOk('CPU halted.');
+
+      logInfo('FPEC unlock…');
+      await flash.unlock();
+      logOk('FPEC unlocked.');
+
+      const t0 = performance.now();
+      logInfo('Mass erase başlıyor… (40-100 ms beklenir)');
+      await flash.massErase();
+      const elapsed = performance.now() - t0;
+      logOk(`Mass erase tamam — ${elapsed.toFixed(0)} ms.`);
+
+      // Doğrulama: ilk 32 byte'ı oku, hepsi 0xFF olmalı
+      logInfo('Doğrulama — ilk 32 byte okunuyor…');
+      const buf = await cmd.readMemory32(0x08000000, 32);
+      const allFF = buf.every(b => b === 0xFF);
+      if (allFF) {
+        logOk('Doğrulama OK — flash tamamen 0xFF.');
+        elDotFlash.className = 'status-dot on';
+      } else {
+        logErr('Doğrulama FAIL — flash'  +
+          ' tam silinmemiş. İlk byte: 0x' + buf[0].toString(16).toUpperCase());
+        elDotFlash.className = 'status-dot err';
+      }
+
+      await flash.lock();
+      logInfo('FPEC kilitlendi.');
+    } catch (e) {
+      logErr('Mass erase hatası: ' + e.message);
+      elDotFlash.className = 'status-dot err';
+    } finally {
+      setFlashButtonsEnabled(true);
+    }
+  });
+
+  // ── Event: CPU Halt ───────────────────────────────────────────────────
+  elBtnHalt.addEventListener('click', async () => {
+    if (!cmd) return;
+    try {
+      await prepareDebugMode();
+      await cmd.halt();
+      logOk('CPU halted.');
+    } catch (e) { logErr('Halt hatası: ' + e.message); }
+  });
+
+  // ── Event: CPU Run ────────────────────────────────────────────────────
+  elBtnRun.addEventListener('click', async () => {
+    if (!cmd) return;
+    try {
+      await cmd.run();
+      logOk('CPU running.');
+    } catch (e) { logErr('Run hatası: ' + e.message); }
+  });
+
+  // ── Event: System Reset ───────────────────────────────────────────────
+  elBtnReset.addEventListener('click', async () => {
+    if (!cmd) return;
+    try {
+      await cmd.systemReset();
+      logOk('System reset gönderildi.');
+    } catch (e) { logErr('Reset hatası: ' + e.message); }
   });
 
   // ── Event: Bağlantıyı kes ──────────────────────────────────────────────
