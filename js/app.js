@@ -49,9 +49,16 @@
   const elProdMinor     = document.getElementById('prodMinor');
   const elProdPatch     = document.getElementById('prodPatch');
   const elBtnProduce    = document.getElementById('btnProduce');
+  const elProdOperator  = document.getElementById('prodOperator');
+  const elProdNotes     = document.getElementById('prodNotes');
+  const elApiStatusText = document.getElementById('apiStatusText');
 
   let prodBoot = null;  // { name, bytes }
   let prodFw   = null;
+  let lastReadUid = null;  // Chip Bilgisi Oku sonucundan
+
+  // Apps Script API
+  const api = new ProductionApi();
 
   // Seçilen bin dosyasının içeriği (RAM'de tutulur)
   let selectedBin = null;  // { name, bytes: Uint8Array }
@@ -301,6 +308,7 @@
       logInfo('UID okunuyor…');
       const uid = await withRetry('UID', () => stm.readUid());
       logOk(`UID: ${uid.pretty}`);
+      lastReadUid = uid;  // Production akışında Sheet'e kayıt için kullanılır
 
       // UI'ı güncelle
       setTargetUI({ voltage, chip, flashSize, uid });
@@ -534,24 +542,38 @@
       `Devam edilsin mi?`
     )) return;
 
+    const operator = (elProdOperator.value || '').trim();
+    if (!operator) {
+      alert('⚠️ Operatör adı boş bırakılamaz.\nSheet kaydı için operatörü gir (Adın).');
+      return;
+    }
+
     setFlashButtonsEnabled(false);
     elDotProd.className = 'status-dot';
     const t0 = performance.now();
+    let uidStr = '';  // Sheet kaydı için
     try {
       await prepareDebugMode();
 
       const flash = new Stm32f0Flash(cmd);
+      const stm   = new Stm32f0(cmd);
       logInfo('━━━━━━━ PCB ÜRETİM BAŞLADI ━━━━━━━');
 
+      // 0) UID oku — Sheet'e kayıt için (her PCB benzersiz)
+      logInfo('[0/5] UID okunuyor…');
+      const uid = await stm.readUid();
+      uidStr = uid.pretty;
+      logOk('  UID: ' + uidStr);
+
       // 1) Mass Erase
-      logInfo('[1/4] Mass Erase…');
+      logInfo('[1/5] Mass Erase…');
       await cmd.halt();
       await flash.unlock();
       await flash.massErase();
       logOk('  Mass erase tamam.');
 
       // 2) Bootloader yaz
-      logInfo(`[2/4] Bootloader yaz @ 0x08000000 (${prodBoot.bytes.length} byte)…`);
+      logInfo(`[2/5] Bootloader yaz @ 0x08000000 (${prodBoot.bytes.length} byte)…`);
       let r = await flash.eraseProgramVerify(0x08000000, prodBoot.bytes, (stage, c, t) => {
         if (stage === 'erase')   logInfo(`    Erase ${c}/${t}`);
         if (stage === 'program') logInfo(`    Program ${c}/${t} byte`);
@@ -562,7 +584,7 @@
       logOk('  Bootloader OK.');
 
       // 3) Firmware — footer ekle + yaz
-      logInfo(`[3/4] Firmware footer ekleniyor (v${major}.${minor}.${patch})…`);
+      logInfo(`[3/5] Firmware footer ekleniyor (v${major}.${minor}.${patch})…`);
       const fwImage = FirmwareFooter.buildFirmwareImage(prodFw.bytes, major, minor, patch);
       const footer  = FirmwareFooter.readFooter(fwImage);
       logInfo(`  Footer: magic=0x${footer.magic.toString(16).toUpperCase()}, ` +
@@ -582,22 +604,52 @@
       logOk('  Firmware OK.');
 
       // 4) Reset
-      logInfo('[4/4] System Reset…');
+      logInfo('[4/5] System Reset…');
       await flash.lock();
       await cmd.systemReset();
       logOk('  Reset gönderildi.');
+
+      // 5) Sunucu kaydı (Apps Script → Google Sheet)
+      logInfo('[5/5] Sunucuya kayıt yolanıyor…');
+      try {
+        const regResult = await api.registerPlc({
+          uid:        uidStr,
+          model:      'Vili2 Mini PLC',
+          bootloader: `${prodBoot.name} (${prodBoot.bytes.length} byte)`,
+          firmware:   `v${major}.${minor}.${patch} — ${prodFw.name}`,
+          operator:   operator,
+          status:     'OK',
+          notes:      (elProdNotes.value || '').trim(),
+        });
+        logOk('  ✓ Sheet kaydı: satır ' + regResult.rowNumber);
+      } catch (regErr) {
+        logWarn('  ⚠ Sunucu kayıt hatası: ' + regErr.message + ' (PCB çalışıyor, ama log kaydı yapılamadı)');
+      }
 
       const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
       logOk(`━━━━━━━ ✓ ÜRETİM TAMAM (${elapsed} sn) ━━━━━━━`);
       elDotProd.className = 'status-dot on';
 
       alert(`✓ PCB üretildi (${elapsed} sn)\n\n` +
+            `UID: ${uidStr}\n` +
             `Bootloader: ${prodBoot.bytes.length} byte\n` +
-            `Firmware: v${major}.${minor}.${patch}\n\n` +
-            `Şimdi PCB enerji aldığında app çalışmalı.`);
+            `Firmware: v${major}.${minor}.${patch}\n` +
+            `Operator: ${operator}\n\n` +
+            `PCB enerji aldığında app çalışmalı.\nKayıt Google Sheet'e eklendi.`);
     } catch (e) {
       logErr('Üretim hatası: ' + e.message);
       elDotProd.className = 'status-dot err';
+
+      // FAIL kaydı (UID okuduysak)
+      if (uidStr) {
+        try {
+          await api.registerPlc({
+            uid: uidStr, model: 'Vili2 Mini PLC',
+            operator: operator, status: 'FAIL', notes: e.message,
+          });
+          logInfo('  FAIL kaydı Sheet\'e eklendi');
+        } catch {}
+      }
       alert('❌ Üretim başarısız:\n' + e.message);
     } finally {
       setFlashButtonsEnabled(true);
@@ -627,4 +679,18 @@
   window.addEventListener('beforeunload', () => {
     if (usb.isOpen) usb.close().catch(() => {});
   });
+
+  // ── Sayfa açılışında API ping ──────────────────────────────────────────
+  (async () => {
+    try {
+      const r = await api.ping();
+      elApiStatusText.textContent = '✓ Hazır (' + r.msg + ')';
+      elApiStatusText.style.color = '#4caf50';
+      logOk('Sunucu API: ' + r.msg + ' (v' + r.version + ')');
+    } catch (e) {
+      elApiStatusText.textContent = '✗ Erişilemiyor: ' + e.message;
+      elApiStatusText.style.color = '#f44336';
+      logErr('Sunucu API erişilemiyor: ' + e.message + ' — internet bağlantısını kontrol et');
+    }
+  })();
 })();
