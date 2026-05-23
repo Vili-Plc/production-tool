@@ -178,12 +178,26 @@
     clearTargetUI();
     let voltage; // opsiyonel
     try {
-      // 1) Önce mevcut modu kontrol et — bazı kart başlangıçta DFU/Mass mode'da
+      // 1) Mevcut modu kontrol et — ST-Link genelde başta DFU modunda
+      let mode;
       try {
-        const mode = await cmd.getCurrentMode();
+        mode = await cmd.getCurrentMode();
         logInfo(`ST-Link mode: ${mode.modeName} (0x${mode.mode.toString(16)})`);
       } catch (e) {
         logWarn(`Mode okunamadı (önemli değil): ${e.message}`);
+      }
+
+      // 1b) DFU modunda ise EXIT — diğer komutlar çalışmaz çünkü USB bootloader'ı dinliyor
+      if (mode && mode.mode === STLINK_MODE.DFU) {
+        logInfo('DFU modunda — çıkış komutu gönderiliyor…');
+        await cmd.exitDfuMode();
+        // Tekrar kontrol et — yeni mode ne?
+        try {
+          const newMode = await cmd.getCurrentMode();
+          logOk(`Yeni mode: ${newMode.modeName} (0x${newMode.mode.toString(16)})`);
+        } catch (e) {
+          logWarn('Mode tekrar okunamadı, devam ediyoruz: ' + e.message);
+        }
       }
 
       // 2) Besleme voltajı (opsiyonel — fail olursa devam et)

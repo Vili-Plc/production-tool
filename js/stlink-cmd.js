@@ -141,6 +141,23 @@
     }
 
     /**
+     * DFU modundan çık. ST-Link USB bağlandığında genelde DFU modunda olur;
+     * bu modda hiçbir debug komutu çalışmaz. Önce bu çağrılır, sonra Debug.
+     * Komut: [0xF3, 0x07] — DFU subcommand EXIT.
+     * Cevap beklenmez (komut sonrası cihaz kendi mode değiştirir).
+     */
+    async exitDfuMode() {
+      try {
+        await this.usb.sendCommand([STLINK_CMD.DFU_COMMAND, 0x07]);
+      } catch (e) {
+        // Bazen DFU exit zaten yapılmışsa hata döner — yutulabilir
+        console.warn('[exitDfuMode]', e.message);
+      }
+      // Cihazın mode geçişi için kısa bekleme
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    /**
      * Hedef MCU besleme voltajı (VAREF) ölç.
      * Cevap: 8 byte = [a0_lo, a0_hi, ?, ?, a1_lo, a1_hi, ?, ?]
      *   Vtarget = 2 * 1.2V * a1/a0
