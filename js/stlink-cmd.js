@@ -396,8 +396,18 @@
         // DHCSR @ 0xE000EDF0 — readMemory32 ile (readDebugReg V2J46'da güvensiz)
         const buf = await this.readMemory32(0xE000EDF0, 4);
         const dhcsr = (buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24)) >>> 0;
+
+        // S_LOCKUP (bit 19) — CPU lockup state (hard fault'tan recover edemiyor)
+        if (dhcsr & 0x00080000) {
+          // Force halt — lockup'tan çıkış için DHCSR.HALT yaz
+          await this.writeDebugReg(0xE000EDF0, 0xA05F0003);
+          throw new Error(`CPU LOCKUP — vector table geçersiz (flash boş?). DHCSR=0x${dhcsr.toString(16)}`);
+        }
+
         if (dhcsr & 0x00020000) return dhcsr;            // S_HALT bit set
         if (performance.now() - t0 > timeoutMs) {
+          // Force halt try
+          await this.writeDebugReg(0xE000EDF0, 0xA05F0003).catch(() => {});
           throw new Error(`CPU halt timeout (${timeoutMs} ms) — DHCSR=0x${dhcsr.toString(16)}`);
         }
         await new Promise(r => setTimeout(r, 2));

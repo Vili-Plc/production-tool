@@ -302,17 +302,35 @@
     /**
      * Flash writer'ı RAM'a yükle (bir kez init).
      * Sonra programBufferLoader her chunk için sadece data + register'ları set eder.
+     *
+     * KRITIK: Mass erase sonrası flash 0xFF olunca vector table geçersiz.
+     * CPU run edilince herhangi bir IRQ → vector fetch 0xFFFFFFFF → LOCKUP.
+     * Bunu önlemek için:
+     *  - NVIC->ICER[0] = 0xFFFFFFFF  (tüm IRQ'ları disable et)
+     *  - MSP = SRAM top  (güvenli stack)
      */
     async initFlashWriter() {
       console.log('[initFlashWriter] yazıcı kodu RAM\'a yükleniyor @ 0x' + WRITER_ADDR.toString(16));
-      // 26 byte writer → 28 byte padded (4 katı)
+
+      // Writer kodu yükle (26 byte → 28 padded)
       const padded = new Uint8Array(28);
       padded.set(FLASH_WRITER_F0_CODE);
       await this.cmd.writeMemory32(WRITER_ADDR, padded);
-      // Sabit register'ları set et (chunk'lar arası değişmez)
+
+      // GÜVENLİ STATE — IRQ disable + MSP set
+      // NVIC->ICER[0] @ 0xE000E180 — tüm 32 IRQ'yu clear (disable)
+      await this.cmd.writeDebugReg(0xE000E180, 0xFFFFFFFF);
+      // NVIC->ICPR[0] @ 0xE000E280 — pending IRQ'ları temizle
+      await this.cmd.writeDebugReg(0xE000E280, 0xFFFFFFFF);
+      // MSP = SRAM top — flash 0xFF olsa bile güvenli stack
+      await this.cmd.writeReg(ARM_REG.MSP, 0x20001FF8);
+
+      // Writer parametre register'ları
       await this.cmd.writeReg(ARM_REG.R4, FLASH.SR);   // FLASH_SR adresi
       await this.cmd.writeReg(ARM_REG.R5, SR_BSY);     // BUSY bit
       await this.cmd.writeReg(ARM_REG.R6, SR_EOP);     // EOP bit
+
+      console.log('[initFlashWriter] IRQ disabled, MSP=0x20001FF8 set');
     }
 
     /**
