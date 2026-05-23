@@ -565,6 +565,45 @@
       uidStr = uid.pretty;
       logOk('  UID: ' + uidStr);
 
+      // 0b) DUPLICATE KONTROL — bu UID daha önce üretildiyse onay sor
+      logInfo('  Sunucuda UID kontrolü…');
+      let isReflash = false;
+      try {
+        const check = await api.checkUid(uidStr);
+        if (check.registered) {
+          const d = check.detail;
+          const dateStr = new Date(d.lastDate).toLocaleString('tr-TR');
+          logWarn(`  ⚠ Bu UID zaten kayıtlı (${d.count} kez)`);
+          logInfo(`     Son: ${dateStr} — ${d.lastFirmware} — ${d.lastOperator} — ${d.lastStatus}`);
+
+          const reflashOk = confirm(
+            `⚠️ BU PCB ÖNCEDEN ÜRETİLMİŞ\n\n` +
+            `UID: ${uidStr}\n` +
+            `Daha önce: ${d.count} kez üretildi\n` +
+            `Son kayıt: ${dateStr}\n` +
+            `Son firmware: ${d.lastFirmware}\n` +
+            `Son operatör: ${d.lastOperator}\n` +
+            `Son durum: ${d.lastStatus}\n\n` +
+            `REFLASH yapılacak (yeni satır eklenir, status: REFLASH).\n\n` +
+            `Devam edilsin mi?`
+          );
+          if (!reflashOk) {
+            logInfo('Üretim iptal edildi (operatör reddetti).');
+            return;
+          }
+          isReflash = true;
+          logInfo('  → REFLASH modunda devam ediliyor.');
+        } else {
+          logOk('  ✓ Yeni PCB — daha önce kayıt yok.');
+        }
+      } catch (apiErr) {
+        // API erişilemezse uyar ama devam et — production durmasın
+        logWarn('  ⚠ UID kontrol yapılamadı: ' + apiErr.message);
+        if (!confirm('UID kontrolü başarısız — sunucu erişilemiyor.\n\nUçar olsun üretime devam edeyim mi? (duplicate riski)')) {
+          return;
+        }
+      }
+
       // 1) Mass Erase
       logInfo('[1/5] Mass Erase…');
       await cmd.halt();
@@ -618,10 +657,11 @@
           bootloader: `${prodBoot.name} (${prodBoot.bytes.length} byte)`,
           firmware:   `v${major}.${minor}.${patch} — ${prodFw.name}`,
           operator:   operator,
-          status:     'OK',
+          status:     isReflash ? 'REFLASH' : 'OK',  // ← duplicate ise REFLASH
           notes:      (elProdNotes.value || '').trim(),
         });
-        logOk('  ✓ Sheet kaydı: satır ' + regResult.rowNumber);
+        logOk('  ✓ Sheet kaydı: satır ' + regResult.rowNumber +
+              (isReflash ? ' (REFLASH)' : ''));
       } catch (regErr) {
         logWarn('  ⚠ Sunucu kayıt hatası: ' + regErr.message + ' (PCB çalışıyor, ama log kaydı yapılamadı)');
       }

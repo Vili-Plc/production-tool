@@ -49,13 +49,16 @@
       return json;
     }
 
-    /** UID kayıtlı mı? (editor sahada update öncesi yetki kontrolü için) */
+    /**
+     * UID kayıtlı mı? Detay döner: { registered, detail: {lastDate, lastFirmware, ...} }
+     * Üretim tool'unda duplicate önleme için kullanılır.
+     */
     async checkUid(uid) {
       const r = await fetch(this.baseUrl + '?action=checkUid&uid=' + encodeURIComponent(uid));
       if (!r.ok) throw new Error('CheckUid HTTP ' + r.status);
       const json = await r.json();
       if (!json.ok) throw new Error('CheckUid fail: ' + json.error);
-      return json.authorized;  // bool
+      return { registered: json.registered, detail: json.detail };
     }
 
     /** Tüm kayıtları getir (debug, üretim listesi). */
