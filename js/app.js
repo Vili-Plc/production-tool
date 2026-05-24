@@ -15,7 +15,7 @@
   // ── TOOL VERSION ──────────────────────────────────────────────────────
   // Her release'de artır + HTML'deki ?v=N script tag'lerini de aynı sayıya çevir.
   // Cache invalidation + sürüm gösterimi için tek kaynak.
-  const TOOL_VERSION = 'v24';
+  const TOOL_VERSION = 'v25';
 
   // ── Auth state (localStorage'da tutulur — sayfa yenilenince devam) ────
   const AUTH_KEY = 'vili_plc_auth';

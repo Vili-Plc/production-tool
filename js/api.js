@@ -14,7 +14,7 @@
   'use strict';
 
   // Varsayılan URL — son bilinen deployment. localStorage'da kayıt varsa onu kullan.
-  const API_BASE_DEFAULT = 'https://script.google.com/macros/s/AKfycbylj0JFrEeEc_t4DGyV02dlbPqYnQt3VgoSrw4nfBKe1wl5MkZM0_wTvpPpXhxSxpZS/exec';
+  const API_BASE_DEFAULT = 'https://script.google.com/macros/s/AKfycbwR5HbN6tWkj9yUc7fKBFtLR2wK1tA8R3aVrYUwT1m85FgcO60Kd3K0a2jHQ15KPfiP/exec';
   const STORAGE_KEY = 'vili_plc_api_url';
 
   function getStoredUrl() {
