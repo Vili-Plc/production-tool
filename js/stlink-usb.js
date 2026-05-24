@@ -62,6 +62,56 @@
     get isOpen() { return this.device !== null && this.device.opened; }
 
     /**
+     * Önceden izin verilmiş ST-Link cihazlarını listele (picker olmadan).
+     * Sayfa yenilemelerinde otomatik reconnect için kullanılır.
+     * @returns {Array<USBDevice>} Bağlanmaya hazır ST-Link'ler
+     */
+    static async getAuthorizedDevices() {
+      if (!navigator.usb) return [];
+      const allDevices = await navigator.usb.getDevices();
+      // Filter ST-Link VID + PID kombinasyonları
+      return allDevices.filter(d => {
+        if (d.vendorId !== 0x0483) return false;
+        return STLINK_USB_FILTERS.some(f => f.productId === d.productId);
+      });
+    }
+
+    /**
+     * Belirli bir USBDevice'ı aç + setup (picker olmadan).
+     * Auto-reconnect için.
+     */
+    async openDevice(device) {
+      this.variant = detectVariant(device.productId);
+      this.device  = device;
+
+      if (!device.opened) await device.open();
+      if (device.configuration === null) await device.selectConfiguration(1);
+      await device.claimInterface(0);
+
+      const iface = device.configuration.interfaces[0].alternate;
+      for (const ep of iface.endpoints) {
+        if (ep.type !== 'bulk') continue;
+        if (ep.direction === 'out' && this.epOut === null) {
+          this.epOut = ep.endpointNumber;
+          this.maxPktOut = ep.packetSize;
+        } else if (ep.direction === 'in') {
+          if (this.epIn === null) { this.epIn = ep.endpointNumber; this.maxPktIn = ep.packetSize; }
+          else if (this.epTrace === null) { this.epTrace = ep.endpointNumber; }
+        }
+      }
+      if (this.epOut === null || this.epIn === null) {
+        await this.close();
+        throw new Error('ST-Link bulk endpoint\'leri bulunamadı.');
+      }
+      return {
+        variant: this.variant, productId: device.productId, vendorId: device.vendorId,
+        serial: device.serialNumber || '', product: device.productName || '',
+        manufacturer: device.manufacturerName || '',
+        epOut: this.epOut, epIn: this.epIn, epTrace: this.epTrace,
+      };
+    }
+
+    /**
      * Browser picker'ı aç → kullanıcı cihaz seçsin → open + claim.
      * Kullanıcı iptal ederse exception fırlatır.
      */

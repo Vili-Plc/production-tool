@@ -15,7 +15,7 @@
   // ── TOOL VERSION ──────────────────────────────────────────────────────
   // Her release'de artır + HTML'deki ?v=N script tag'lerini de aynı sayıya çevir.
   // Cache invalidation + sürüm gösterimi için tek kaynak.
-  const TOOL_VERSION = 'v23';
+  const TOOL_VERSION = 'v24';
 
   // ── Auth state (localStorage'da tutulur — sayfa yenilenince devam) ────
   const AUTH_KEY = 'vili_plc_auth';
@@ -89,6 +89,8 @@
   const elBtnProduceSlave = document.getElementById('btnProduceSlave');
   // PLC Model
   const elPlcModel        = document.getElementById('plcModel');
+  // Heartbeat
+  const elHeartbeatStatus = document.getElementById('heartbeatStatus');
 
   let prodBoot = null;  // { name, bytes }
   let prodFw   = null;
@@ -773,8 +775,130 @@
     logInfo('Log temizlendi.');
   });
 
+  // ── Heartbeat + Auto-reconnect ────────────────────────────────────────
+  // Background polling: her 3 sn ST-Link sağlığını kontrol et.
+  // Bağlantı koparsa otomatik recover etmeye çalış.
+  let heartbeatTimer = null;
+  let consecutiveFails = 0;
+  let isOperationInProgress = false;
+
+  function setHeartbeatStatus(text, color) {
+    if (!elHeartbeatStatus) return;
+    elHeartbeatStatus.textContent = text;
+    elHeartbeatStatus.style.color = color || 'var(--muted)';
+  }
+
+  async function heartbeatTick() {
+    if (!usb.isOpen || !cmd) {
+      setHeartbeatStatus('💤 Bağlı değil', 'var(--muted)');
+      consecutiveFails = 0;
+      return;
+    }
+    // Bir operation devam ediyorsa heartbeat'i atla (busy USB)
+    if (isOperationInProgress) {
+      setHeartbeatStatus('⚙ İşlem devam ediyor…', 'var(--accent)');
+      return;
+    }
+    try {
+      // Hızlı versiyon read (~5 ms USB roundtrip)
+      await cmd.getVersion();
+      consecutiveFails = 0;
+      setHeartbeatStatus('💚 Bağlantı sağlam (heartbeat OK)', 'var(--ok)');
+    } catch (e) {
+      consecutiveFails++;
+      setHeartbeatStatus(`⚠ Heartbeat fail ${consecutiveFails}/3: ${e.message}`, 'var(--warn)');
+      if (consecutiveFails >= 3) {
+        // Bağlantı gerçekten kopmuş — recover dene
+        logWarn('ST-Link bağlantı kopması tespit edildi, otomatik recover…');
+        await attemptRecover();
+      }
+    }
+  }
+
+  async function attemptRecover() {
+    setHeartbeatStatus('🔄 Recover ediliyor…', 'var(--warn)');
+    try {
+      // Önce mevcut bağlantıyı kapat
+      try { await usb.close(); } catch {}
+      // Önceden izin verilmiş cihaz var mı?
+      const devices = await StlinkUsb.getAuthorizedDevices();
+      if (devices.length === 0) {
+        throw new Error('İzin verilmiş cihaz yok (kullanıcı manuel bağlanmalı)');
+      }
+      // İlk cihazı pickr olmadan aç
+      const info = await usb.openDevice(devices[0]);
+      cmd = new StlinkCmd(usb);
+      const ver = await cmd.getVersion();
+      logOk(`✓ Auto-recover OK: ${ver.formatted}`);
+      setConnectedUI(info);
+      setVersionUI(ver);
+      elBtnReadChip.disabled = false;
+      setFlashButtonsEnabled(true);
+      consecutiveFails = 0;
+      setHeartbeatStatus('💚 Bağlantı sağlam (recover sonrası)', 'var(--ok)');
+    } catch (e) {
+      logErr('Auto-recover başarısız: ' + e.message);
+      setHeartbeatStatus('🔴 Recover başarısız — manuel bağlan', 'var(--err)');
+      cmd = null;
+      setDisconnectedUI();
+    }
+  }
+
+  // Heartbeat'i başlat (her 3 sn)
+  function startHeartbeat() {
+    if (heartbeatTimer) return;
+    heartbeatTimer = setInterval(heartbeatTick, 3000);
+  }
+  function stopHeartbeat() {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  }
+
+  // Production / flash işlemleri sırasında heartbeat'i suspend et
+  // (USB busy iken paralel sorgu hata verir)
+  const originalSetFlashEnabled = setFlashButtonsEnabled;
+  setFlashButtonsEnabled = function(en) {
+    isOperationInProgress = !en;
+    originalSetFlashEnabled(en);
+  };
+
+  // Auto-reconnect on page load — önceden izin verilmiş cihaz varsa otomatik bağlan
+  async function tryAutoReconnect() {
+    try {
+      const devices = await StlinkUsb.getAuthorizedDevices();
+      if (devices.length === 0) {
+        logInfo('Otomatik bağlantı için önce manuel "ST-Link\'e Bağlan" gerekli.');
+        return;
+      }
+      logInfo(`${devices.length} izinli ST-Link bulundu, otomatik bağlanıyor…`);
+      const info = await usb.openDevice(devices[0]);
+      logOk(`Auto-connect: ${info.product || 'ST-Link'} (variant ${info.variant})`);
+      setConnectedUI(info);
+      cmd = new StlinkCmd(usb);
+      const ver = await cmd.getVersion();
+      logOk(`Versiyon: ${ver.formatted}`);
+      setVersionUI(ver);
+      elBtnReadChip.disabled = false;
+      setFlashButtonsEnabled(true);
+      startHeartbeat();
+    } catch (e) {
+      logWarn('Auto-connect başarısız: ' + e.message + ' (manuel bağlanın)');
+    }
+  }
+
+  // Heartbeat'i manuel connect/disconnect sonrasında da yönet
+  const originalConnectHandler = elBtnConnect.onclick;
+  elBtnConnect.addEventListener('click', () => {
+    // requestAndOpen başarılı olunca heartbeat başlat
+    setTimeout(() => { if (usb.isOpen) startHeartbeat(); }, 500);
+  });
+  elBtnDisconnect.addEventListener('click', () => {
+    stopHeartbeat();
+    setHeartbeatStatus('', 'var(--muted)');
+  });
+
   // ── Sayfa kapanırken cihazı serbest bırak ─────────────────────────────
   window.addEventListener('beforeunload', () => {
+    stopHeartbeat();
     if (usb.isOpen) usb.close().catch(() => {});
   });
 
@@ -1039,5 +1163,7 @@
   if (savedAuth && savedAuth.user && savedAuth.role) {
     applyRole(savedAuth.user, savedAuth.role);
     logInfo('Otomatik giriş: ' + savedAuth.user + ' (' + savedAuth.role + ')');
+    // Login OK → ST-Link auto-reconnect dene (önceden izin verilmiş cihaz varsa)
+    setTimeout(tryAutoReconnect, 500);
   }
 })();
